@@ -948,6 +948,7 @@ bool TestApp::Initialize()
 	if (!D3Base::Initialize())
 		return false;
 
+	//git test
 	wchar_t buffer[MAX_PATH];
 	GetModuleFileNameW(NULL, buffer, MAX_PATH);
 
