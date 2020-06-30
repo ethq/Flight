@@ -41,7 +41,7 @@ Loads a mesh from an OBJ file, including submeshes.
 
 Returns an integer less than 0 on failure. Returns 0 for success.
 */
-int Mesh::LoadOBJ(string filename)
+int Mesh::LoadOBJ(wstring filename)
 {
     assert(mD3Device);
     assert(mCommandList);

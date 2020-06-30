@@ -32,7 +32,7 @@ void Plane::UpdatePosition()
 	// Update position
 
 	// acceleration modulation hack
-	float accel = 1.0f;
+	float accel = 0.1f;
 	auto pos = DirectX::XMLoadFloat4(&mPos);
 
 	if (mIsAccelerating)

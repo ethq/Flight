@@ -58,7 +58,7 @@ public:
     // We can free this memory after we finish upload to the GPU.
     void DisposeUploaders();
 
-    int LoadOBJ(std::string filename);
+    int LoadOBJ(std::wstring filename);
 
 private:
     const Microsoft::WRL::ComPtr<ID3D12Device>& mD3Device = nullptr;

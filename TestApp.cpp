@@ -290,7 +290,7 @@ void TestApp::Draw(const Timer& t)
 
 	mCommandList->SetGraphicsRootDescriptorTable(4, flatShadowMapHandle);
 	mCommandList->SetGraphicsRootDescriptorTable(6, cubeShadowMapHandle);
-	mCommandList->SetGraphicsRootDescriptorTable(5, cubeShadowMapHandle); // presumably we can bind this early; the opaque shader doesn't use it.
+	mCommandList->SetGraphicsRootDescriptorTable(5, mEnvironmentMapSrv); // presumably we can bind this early; the opaque shader doesn't use it.
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress()); // DrawShadowMap() sets it to the shadowpass cb; so reset
 
 	mCommandList->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &DepthStencilView());
@@ -621,7 +621,7 @@ void TestApp::UpdateLights(const Timer& t)
 		}
 		else if (l->Type == LightType::POINT)
 		{
-			if (mDbgFlag)
+			if (true)
 				return;
 			auto rotAngle = t.DeltaTime() / 2.0f;
 			auto rotX = XMMatrixRotationY(rotAngle);
@@ -687,6 +687,7 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 	
 	// Copy light info - this might not be great.. hm. 
 	mPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
 	for (size_t i = 0; i < mLights.size(); ++i)
 	{
 		mPassCB.Lights[i].Direction = mLights[i]->Light->Direction;
@@ -707,7 +708,7 @@ void TestApp::BuildFrameResources()
 	// The magic +1 here is due to the sky sphere used for env mapping
 	// Another magic +1 for the debug quad
 
-	const UINT passCount = 1+6; // one for doing regular passes, six for doing shadow passes. think maybe they are getting overwritten
+	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); // one for doing regular passes, six for doing shadow passes. think maybe they are getting overwritten
 	for (UINT i = 0; i < mNumFrameResources; ++i)
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(mD3Device.Get(), passCount, (UINT)mRenderItems.size() + 1 + 1, (UINT)mMaterials.size()));
@@ -874,9 +875,9 @@ void TestApp::BuildPSOs()
 	// PSO for shadow map
 	//	
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowPso = opaquePsoDesc;
-	shadowPso.RasterizerState.DepthBias = 110; // 1000; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
+	shadowPso.RasterizerState.DepthBias = 5; // 1000; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
 	shadowPso.RasterizerState.DepthBiasClamp = 1.0f; 
-	shadowPso.RasterizerState.SlopeScaledDepthBias = 0.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
+	shadowPso.RasterizerState.SlopeScaledDepthBias = 1.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
 	//shadowPso.RasterizerState.DepthClipEnable = true;
 	shadowPso.pRootSignature = mRootSignature.Get();        // depth = 250000, depthscaled = 1.0f works OK with pointlight; 750000, 10, (5,35) pt
 	shadowPso.VS =
@@ -910,19 +911,20 @@ void TestApp::InitLights()
 
 	//++mNumSpotLights;
 
-	mLights.push_back(std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize));
+	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 
-	mLights[0]->Light->Direction = { 0.0f, 0.0f, 0.0f };
-	mLights[0]->Light->Strength = { 0.8f, 0.8f, 0.8f };
-	mLights[0]->Light->FalloffEnd = 1000.0f;
-	mLights[0]->Light->FalloffStart = 50.0f;
-	mLights[0]->Light->SpotPower = 0.0f;
-	mLights[0]->Light->Position = { -10.0f, 30.0f, -0.0f };
-	mLights[0]->Near = 0.10f;
-	mLights[0]->Far = 500.0f;
 
-	mLights[0]->BuildPLViewProj();
+	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
+	pl->Light->Strength = { 0.8f, 0.8f, 0.8f };
+	pl->Light->FalloffEnd = 1000.0f;
+	pl->Light->FalloffStart = 50.0f;
+	pl->Light->SpotPower = 0.0f;
+	pl->Light->Position = { -0.0f, 5.0f, 0.0f };
+	pl->Near = 10.0f;
+	pl->Far = 800.0f;
 
+	pl->BuildPLViewProj();
+		mLights.push_back(pl);
 	++mNumPointLights;
 
 /*	mLights.push_back(std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device));
@@ -947,14 +949,14 @@ bool TestApp::Initialize()
 {
 	if (!D3Base::Initialize())
 		return false;
-
-	//git test
+	
 	wchar_t buffer[MAX_PATH];
 	GetModuleFileNameW(NULL, buffer, MAX_PATH);
 
 	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
 	// So we need the project path, or do as recommended, store in user/documents or something like that.
 	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
+	mProjectPath = L"F:\\GitHub\\Flight\\";
 
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -1297,7 +1299,7 @@ void TestApp::BuildRenderItems()
 
 	mSkydome = std::make_unique<RenderItem>(mNumFrameResources);
 
-	XMStoreFloat4x4(&mSkydome->World, XMMatrixScaling(1000.0f, 1000.0f, 1000.0f));
+	XMStoreFloat4x4(&mSkydome->World, XMMatrixScaling(10000.0f, 10000.0f, 10000.0f));
 	mSkydome->TexTransform = Math::Identity4x4();
 	mSkydome->cbObjectIndex = cbObjectIndex++;
 	mSkydome->Mat = mMaterials["envMap"].get();
@@ -1364,7 +1366,7 @@ void TestApp::BuildRenderItems()
 	{
 		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
 
-		XMStoreFloat4x4(&ri->World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
+		XMStoreFloat4x4(&ri->World, XMMatrixScaling(0.05f, 0.05f, 0.05f));
 		ri->TexTransform = Math::Identity4x4();
 		ri->cbObjectIndex = cbObjectIndex++;
 		ri->Mat = mMaterials["stone0"].get();
@@ -1502,7 +1504,8 @@ void TestApp::BuildStaticGeometry()
 
 	// Let's load the static canyon geometry
 	auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
-	m->LoadOBJ("Models//Level2.obj");
+	auto success = m->LoadOBJ(mProjectPath + L"Models//Level2.obj");
+	assert(success >= 0);
 	m->Name = "Level2";
 	mGeometries[m->Name] = std::move(m);
 }
