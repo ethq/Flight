@@ -911,9 +911,16 @@ void TestApp::InitLights()
 
 	//++mNumSpotLights;
 
+	auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
+	dl->Light->Direction = { 0.57735f, 1.57735f, 0.57735f };
+	dl->Light->Strength = { 0.8f, 0.8f, 0.8f };
+	dl->Light->FalloffEnd = 1000.0f;
+	dl->Light->FalloffStart = 900.0f;
+
+	mLights.push_back(dl);
+	mNumDirLights++;
+
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
-
-
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
 	pl->Light->Strength = { 0.8f, 0.8f, 0.8f };
 	pl->Light->FalloffEnd = 1000.0f;
@@ -924,17 +931,10 @@ void TestApp::InitLights()
 	pl->Far = 800.0f;
 
 	pl->BuildPLViewProj();
-		mLights.push_back(pl);
+	mLights.push_back(pl);
 	++mNumPointLights;
 
-/*	mLights.push_back(std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device));
-
-	mLights[0]->Light->Direction = { 0.57735f, 1.57735f, 0.57735f };
-	mLights[0]->Light->Strength = { 0.8f, 0.8f, 0.8f };
-	mLights[0]->Light->FalloffEnd = 1000.0f;
-	mLights[0]->Light->FalloffStart = 900.0f;
-
-	mNumDirLights++; */// keep track of this for the shader. NOTE: depending on how i do things, may have to recompile shader if numlights changes at runtime
+	// keep track of this for the shader. NOTE: depending on how i do things, may have to recompile shader if numlights changes at runtime
 
 	//mPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
 	//mPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
@@ -1149,11 +1149,17 @@ void TestApp::BuildDescriptors()
 
 	// IMPORTANT: MUST BE SORTED BY LIGHT TYPE PRIOR TO DESCRIPTOR CONSTRUCTION (add check TODO)
 
-	for(size_t i = 0; i < mLights.size(); ++i)
+	for(size_t i = 0; i < mNumDirLights+mNumSpotLights; ++i)
 		mLights[i]->Shadowmap()->BuildDescriptors(
 			hDescriptor,
 			gDescriptor,
 			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), i+1, mDsvDescriptorSize));
+	
+	for (size_t i = mNumDirLights + mNumSpotLights; i < mLights.size(); ++i)
+		mLights[i]->Shadowmap()->BuildDescriptors(
+			hDescriptor,
+			gDescriptor,
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), i + 1, mDsvDescriptorSize));
 }
 
 void TestApp::BuildSobelRootSignature()
