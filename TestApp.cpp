@@ -646,20 +646,26 @@ void TestApp::UpdateLights(const Timer& t)
 		}
 		else if (l->Type == LightType::POINT)
 		{
-			if (true)
+			if (mDbgFlag)
 				return;
-			auto rotAngle = t.DeltaTime() / 2.0f;
-			auto rotX = XMMatrixRotationY(rotAngle);
+			//auto rotAngle = t.DeltaTime() / 2.0f;
+			//auto rotX = XMMatrixRotationY(rotAngle);
 
-			XMVECTOR lightPos = XMLoadFloat3(&l->Light->Position);
-			lightPos = XMVector3Transform(lightPos, rotX);
-			XMStoreFloat3(&l->Light->Position, lightPos);
+			//XMVECTOR lightPos = XMLoadFloat3(&l->Light->Position);
+			//lightPos = XMVector3Transform(lightPos, rotX);
+			//XMStoreFloat3(&l->Light->Position, lightPos);
 
+			//l->BuildPLViewProj();
+
+			//auto ls = mRenderItems[0].get();
+			//XMStoreFloat4x4(&ls->World, XMMatrixTranslation(l->Light->Position.x, l->Light->Position.y, l->Light->Position.z));
+			//ls->NumFramesDirty = mNumFrameResources;
+
+			auto movy = XMMatrixTranslation(0.0f, t.DeltaTime()/5.0f, 0.0f);
+			XMVECTOR lp = XMLoadFloat3(&l->Light->Position);
+			lp = XMVector3Transform(lp, movy);
+			XMStoreFloat3(&l->Light->Position, lp);
 			l->BuildPLViewProj();
-
-			auto ls = mRenderItems[0].get();
-			XMStoreFloat4x4(&ls->World, XMMatrixTranslation(l->Light->Position.x, l->Light->Position.y, l->Light->Position.z));
-			ls->NumFramesDirty = mNumFrameResources;
 		}
 	}
 }
@@ -900,7 +906,7 @@ void TestApp::BuildPSOs()
 	// PSO for shadow map
 	//	
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowPso = opaquePsoDesc;
-	shadowPso.RasterizerState.DepthBias = 5; // 1000; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
+	shadowPso.RasterizerState.DepthBias = 150; // 1000; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
 	shadowPso.RasterizerState.DepthBiasClamp = 1.0f; 
 	shadowPso.RasterizerState.SlopeScaledDepthBias = 1.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
 	//shadowPso.RasterizerState.DepthClipEnable = true;
@@ -947,11 +953,11 @@ void TestApp::InitLights()
 
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
-	pl->Light->Strength = { 0.8f, 0.8f, 0.8f };
+	pl->Light->Strength = { 0.4f, 0.4f, 0.4f };
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
-	pl->Light->Position = { -0.0f, 5.0f, 0.0f };
+	pl->Light->Position = { -0.0f, 1.0f, 0.0f };
 	pl->Near = 1.0f;
 	pl->Far = 800.0f;
 
@@ -981,7 +987,7 @@ bool TestApp::Initialize()
 	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
 	// So we need the project path, or do as recommended, store in user/documents or something like that.
 	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
-	mProjectPath = L"D:\\GitHub\\Flight\\";
+	mProjectPath = L"F:\\GitHub\\Flight\\";
 
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
