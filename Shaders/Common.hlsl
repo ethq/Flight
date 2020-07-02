@@ -94,7 +94,7 @@ float CalcShadowFactor(float4 shadowPosH, uint lightIdx)
 
 float GetNormalizedDepth(float z)
 {
-    float near = 10.0f;
+    float near = 1.0f;
     float far = 800.0f;
 
     return far / (far - near) - near * far / ((far - near) * z);
