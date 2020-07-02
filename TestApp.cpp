@@ -23,6 +23,8 @@ void TestApp::Update(const Timer& t)
 		CloseHandle(eventHandle);
 	}
 
+	UpdateGeometry(t);
+
 	UpdateObjectCBs(t);
 	UpdateMaterialCBs(t);
 	UpdateLights(t);
@@ -202,6 +204,29 @@ void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
 //	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
 //	XMStoreFloat4x4(&mView, view);
 //}
+
+void TestApp::UpdateGeometry(const Timer& t)
+{
+	for (auto& ri : mRenderItems)
+	{
+		auto iscube = (ri->Name.substr(0, 6) == "Cube.0");
+		if (!iscube)
+			continue;
+
+		auto rotup = 2*(rand() % 2) - 1;
+
+		// rotate in local space
+		float localRate = 1.0f;
+		auto rotx = XMMatrixRotationX(0.1f*rotup*t.DeltaTime() * localRate);
+		auto roty = XMMatrixRotationY(t.DeltaTime() * localRate);
+		auto rotz = XMMatrixRotationZ(t.DeltaTime() * localRate);
+		
+		XMMATRIX pos = XMLoadFloat4x4(&ri->World);
+		XMStoreFloat4x4(&ri->World, rotx * roty * pos);
+
+		ri->NumFramesDirty = mNumFrameResources;
+	}
+}
 
 void TestApp::Draw(const Timer& t)
 {
@@ -911,14 +936,14 @@ void TestApp::InitLights()
 
 	//++mNumSpotLights;
 
-	auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
-	dl->Light->Direction = { 0.57735f, 1.57735f, 0.57735f };
-	dl->Light->Strength = { 0.8f, 0.8f, 0.8f };
-	dl->Light->FalloffEnd = 1000.0f;
-	dl->Light->FalloffStart = 900.0f;
+	//auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
+	//dl->Light->Direction = { 0.57735f, 1.57735f, 0.57735f };
+	//dl->Light->Strength = { 0.8f, 0.8f, 0.8f };
+	//dl->Light->FalloffEnd = 1000.0f;
+	//dl->Light->FalloffStart = 900.0f;
 
-	mLights.push_back(dl);
-	mNumDirLights++;
+	//mLights.push_back(dl);
+	//mNumDirLights++;
 
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
@@ -927,7 +952,7 @@ void TestApp::InitLights()
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
 	pl->Light->Position = { -0.0f, 5.0f, 0.0f };
-	pl->Near = 10.0f;
+	pl->Near = 1.0f;
 	pl->Far = 800.0f;
 
 	pl->BuildPLViewProj();
@@ -956,7 +981,7 @@ bool TestApp::Initialize()
 	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
 	// So we need the project path, or do as recommended, store in user/documents or something like that.
 	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
-	mProjectPath = L"F:\\GitHub\\Flight\\";
+	mProjectPath = L"D:\\GitHub\\Flight\\";
 
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -1368,7 +1393,7 @@ void TestApp::BuildRenderItems()
 
 	int j = 0;
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
-	for (auto& g : mGeometries["Level2"]->DrawArgs)
+	for (auto& g : mGeometries["Level4"]->DrawArgs)
 	{
 		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
 
@@ -1376,11 +1401,12 @@ void TestApp::BuildRenderItems()
 		ri->TexTransform = Math::Identity4x4();
 		ri->cbObjectIndex = cbObjectIndex++;
 		ri->Mat = mMaterials["stone0"].get();
-		ri->Geo = mGeometries["Level2"].get();
+		ri->Geo = mGeometries["Level4"].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ri->IndexCount = g.second.IndexCount;
 		ri->StartIndexLocation = g.second.StartIndexLocation;
 		ri->BaseVertexLocation = g.second.BaseVertexLocation;
+		ri->Name = g.first;
 
 		mRenderItems.push_back(std::move(ri));
 	}
@@ -1510,9 +1536,9 @@ void TestApp::BuildStaticGeometry()
 
 	// Let's load the static canyon geometry
 	auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
-	auto success = m->LoadOBJ(mProjectPath + L"Models//Level2.obj");
+	auto success = m->LoadOBJ(mProjectPath + L"Models//Level4.obj");
 	assert(success >= 0);
-	m->Name = "Level2";
+	m->Name = "Level4";
 	mGeometries[m->Name] = std::move(m);
 }
 

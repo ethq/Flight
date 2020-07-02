@@ -39,6 +39,7 @@ private:
 	virtual void OnKeyDown(WPARAM, LPARAM) override;
 	virtual void OnKeyUp(WPARAM, LPARAM) override;
 
+	void UpdateGeometry(const Timer&);
 	void UpdateObjectCBs(const Timer&);
 	void UpdateMaterialCBs(const Timer&);
 	void UpdateMainPassCB(const Timer&);

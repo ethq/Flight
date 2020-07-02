@@ -17,6 +17,8 @@ struct RenderItem
 
 	DirectX::XMFLOAT4X4 TexTransform = Math::Identity4x4();
 
+	std::string Name;
+
 	// We use a circular array of frame "resources" to mitigate cpu/gpu locking. As such, set this to however many
 	// frame resources are in our array, indicating that they must all be updated.
 	int NumFramesDirty = -1;
