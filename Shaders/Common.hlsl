@@ -71,7 +71,7 @@ float CalcShadowFactor(float4 shadowPosH, uint lightIdx)
     uint width, height, numMips;
     gShadowMap[lightIdx].GetDimensions(0, width, height, numMips);
 
-    // Texel size.
+    // Texel size
     float dx = 1.0f / (float)width;
 
     float percentLit = 0.0f;
@@ -94,8 +94,10 @@ float CalcShadowFactor(float4 shadowPosH, uint lightIdx)
 
 float GetNormalizedDepth(float z)
 {
-    float near = 1.0f;
-    float far = 800.0f;
+    // For the rotating cubes w/ pl, I used
+    // near = 1, far = 800
+    float near = 0.1f;
+    float far = 400.0f;
 
     return far / (far - near) - near * far / ((far - near) * z);
 }

@@ -50,6 +50,7 @@ int Mesh::LoadOBJ(wstring filename)
     vector<XMFLOAT2> texcoords;
     vector<XMFLOAT3> normals;
     map<string, int> verts_added;
+    float boundingRadius = 0.0f;
     
     vector<uint16_t> indices;
     vector<Vertex> vertices;

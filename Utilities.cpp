@@ -67,29 +67,35 @@ ComPtr<ID3DBlob> Utilities::LoadBinary(const std::wstring& filename)
     return blob;
 }
 
+/*
+Constructs an (LH) oriented view matrix, containing basis vectors and a basis point.
+(pos, target, worldUp) are assumed to be given in world space. 
+
+The returned view matrix maps from world space to view space.
+*/
 XMMATRIX Utilities::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
 {
     XMVECTOR L = XMVector3Normalize(XMVectorSubtract(target, pos));
     XMVECTOR R = XMVector3Normalize(XMVector3Cross(worldUp, L));
     XMVECTOR U = XMVector3Cross(L, R);
 
-    XMFLOAT3 mPosition;
-    XMFLOAT3 mLook;
-    XMFLOAT3 mRight;
-    XMFLOAT3 mUp;
+    XMFLOAT3 position;
+    XMFLOAT3 look;
+    XMFLOAT3 right;
+    XMFLOAT3 up;
     XMFLOAT3 tar;
 
     XMStoreFloat3(&tar, target);
 
-    XMStoreFloat3(&mPosition, pos);
-    XMStoreFloat3(&mLook, L);
-    XMStoreFloat3(&mRight, R);
-    XMStoreFloat3(&mUp, U);
+    XMStoreFloat3(&position, pos);
+    XMStoreFloat3(&look, L);
+    XMStoreFloat3(&right, R);
+    XMStoreFloat3(&up, U);
 
-    R = XMLoadFloat3(&mRight);
-    U = XMLoadFloat3(&mUp);
-    L = XMLoadFloat3(&mLook);
-    XMVECTOR P = XMVectorSet(mPosition.x, mPosition.y, mPosition.z, 1.0f);
+    R = XMLoadFloat3(&right);
+    U = XMLoadFloat3(&up);
+    L = XMLoadFloat3(&look);
+    XMVECTOR P = XMVectorSet(position.x, position.y, position.z, 1.0f);
 
     // Keep camera's axes orthogonal to each other and of unit length.
     L = XMVector3Normalize(L);
@@ -103,28 +109,26 @@ XMMATRIX Utilities::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
     float u = XMVectorGetX(XMVector3Dot(P, U));
     float l = XMVectorGetX(XMVector3Dot(P, L));
 
-    //P = XMVectorSet(r,u,l, 1.0f);
-
-    XMStoreFloat3(&mRight, R);
-    XMStoreFloat3(&mUp, U);
-    XMStoreFloat3(&mLook, L);
+    XMStoreFloat3(&right, R);
+    XMStoreFloat3(&up, U);
+    XMStoreFloat3(&look, L);
 
     XMFLOAT4X4 mView;
 
 
-    mView(0, 0) = mRight.x;
-    mView(0, 1) = mRight.y;
-    mView(0, 2) = mRight.z;
+    mView(0, 0) = right.x;
+    mView(0, 1) = right.y;
+    mView(0, 2) = right.z;
     mView(0, 3) = r;
 
-    mView(1, 0) = mUp.x;
-    mView(1, 1) = mUp.y;
-    mView(1, 2) = mUp.z;
+    mView(1, 0) = up.x;
+    mView(1, 1) = up.y;
+    mView(1, 2) = up.z;
     mView(1, 3) = u;
 
-    mView(2, 0) = mLook.x;
-    mView(2, 1) = mLook.y;
-    mView(2, 2) = mLook.z;
+    mView(2, 0) = look.x;
+    mView(2, 1) = look.y;
+    mView(2, 2) = look.z;
     mView(2, 3) = l;
 
     mView(3, 0) = 0.0f;
@@ -132,29 +136,12 @@ XMMATRIX Utilities::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
     mView(3, 2) = 0.0f;
     mView(3, 3) = 1.0f;
 
-    //mView(0, 0) = mRight.x;
-    //mView(1, 0) = mRight.y;
-    //mView(2, 0) = mRight.z;
-    //mView(3, 0) = x;
+    auto view = XMMATRIX(R, U, L, P);
 
-    //mView(0, 1) = mUp.x;
-    //mView(1, 1) = mUp.y;
-    //mView(2, 1) = mUp.z;
-    //mView(3, 1) = y;
+    auto det = XMMatrixDeterminant(view);
+    view = XMMatrixInverse(&det, view);
 
-    //mView(0, 2) = mLook.x;
-    //mView(1, 2) = mLook.y;
-    //mView(2, 2) = mLook.z;
-    //mView(3, 2) = z;
-
-    //mView(0, 3) = 0.0f;
-    //mView(1, 3) = 0.0f;
-    //mView(2, 3) = 0.0f;
-    //mView(3, 3) = 1.0f;
-
-    //return XMLoadFloat4x4(&mView);
-
-    return XMMATRIX(R, U, L, P);
+    return view;
 }
 
 Microsoft::WRL::ComPtr<ID3D12Resource> Utilities::CreateDefaultBuffer(

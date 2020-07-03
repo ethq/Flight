@@ -1,8 +1,3 @@
-//***************************************************************************************
-// Shadows.hlsl by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
-
-// Include common HLSL code.
 #include "Common.hlsl"
 
 struct VertexIn

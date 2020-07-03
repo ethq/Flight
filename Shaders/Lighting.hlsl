@@ -101,7 +101,7 @@ float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float
     // Attenuate light by distance.
     float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
     lightStrength *= att;
-
+    
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
@@ -149,7 +149,7 @@ float4 ComputeLighting(Light gLights[MAX_LIGHTS], Material mat,
 #if (NUM_DIR_LIGHTS > 0)
     for(i = 0; i < NUM_DIR_LIGHTS; ++i)
     {
-        result += shadowFactors.sf[i] * ComputeDirectionalLight(gLights[i], mat, normal, toEye);
+        result += shadowFactors.sf[i]*ComputeDirectionalLight(gLights[i], mat, normal, toEye);
     }
 #endif
 
