@@ -25,7 +25,7 @@ public:
     std::vector<DirectX::XMFLOAT4X4> ShadowTransform;
 
     LightPovData() = delete;
-    LightPovData(LightType type, Microsoft::WRL::ComPtr<ID3D12Device>& dev, UINT dsvDescriptorSize)
+    LightPovData(LightType type, Microsoft::WRL::ComPtr<ID3D12Device>& dev, UINT dsvDescriptorSize = 0)
         : Type(type)
     {
         // We only need dsv desc size for point lights, as it needs to create 6 DSV's, and we need the size to offset through the array
@@ -61,6 +61,6 @@ public:
 
 private:
     std::shared_ptr<ShadowMap> mShadowMap;
-    const UINT SHADOW_MAP_WIDTH = 1024*1;
-    const UINT SHADOW_MAP_HEIGHT = 1024*1;
+    const UINT SHADOW_MAP_WIDTH = 1024*2;
+    const UINT SHADOW_MAP_HEIGHT = 1024*2;
 };

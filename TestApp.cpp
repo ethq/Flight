@@ -157,7 +157,7 @@ void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
 		break;
 	case 0x49:
 		// I
-		mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[gIdx]));
+		mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[0]));
 		mProj = mLights[0]->Proj;
 		switch (gIdx)
 		{
@@ -207,6 +207,7 @@ void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
 
 void TestApp::UpdateGeometry(const Timer& t)
 {
+	return;
 	for (auto& ri : mRenderItems)
 	{
 		auto iscube = (ri->Name.substr(0, 6) == "Cube.0");
@@ -428,8 +429,11 @@ void TestApp::UpdateShadowPassCB(std::shared_ptr<LightPovData> l, UINT idx = 0)
 	XMMATRIX proj = XMLoadFloat4x4(&l->Proj);
 
 	// Light view lives in light view space. So it must be inverted in order to take us from world->light viewspace
-	auto det = XMMatrixDeterminant(view);
-	view = XMMatrixInverse(&det, view);
+	// Note: applies only to point lights! For directional; no need. 
+	// Current TODO: make this consistent
+
+	//auto det = XMMatrixDeterminant(view);
+	//view = XMMatrixInverse(&det, view);
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -563,7 +567,7 @@ void TestApp::UpdateObjectCBs(const Timer& gt)
 void TestApp::BuildSceneBounds()
 {
 	mSceneBoundS.Center = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	mSceneBoundS.Radius = 150;
+	mSceneBoundS.Radius = 20;
 }
 
 // Update both direction/position and info needed for shadow mapping
@@ -590,14 +594,17 @@ void TestApp::UpdateLights(const Timer& t)
 			auto rot = XMMatrixMultiply(rotY, rotX);
 
 			XMVECTOR lightDir = XMLoadFloat3(&l->Light->Direction);
-			lightDir = XMVector4Transform(lightDir, rotX);
+			lightDir = XMVector4Transform(lightDir, rotY);
 			XMStoreFloat3(&l->Light->Direction, lightDir);
-			XMVECTOR lightPos = -2.0f * mSceneBoundS.Radius * lightDir;
+			XMVECTOR lightPos = -0.3f * mSceneBoundS.Radius * lightDir;
 			XMVECTOR targetPos = XMLoadFloat3(&mSceneBoundS.Center);
 			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-
 			XMStoreFloat3(&l->Light->Position, lightPos);
+
+			//auto ls = mRenderItems[0].get();
+			//XMStoreFloat4x4(&ls->World, XMMatrixTranslation(l->Light->Position.x, l->Light->Position.y, l->Light->Position.z));
+			//ls->NumFramesDirty = mNumFrameResources;
 			
 			// Transform bounding sphere to light space.
 			XMFLOAT3 sphereCenterLS;
@@ -611,8 +618,8 @@ void TestApp::UpdateLights(const Timer& t)
 			float top = sphereCenterLS.y + mSceneBoundS.Radius;
 			float far_ = sphereCenterLS.z + mSceneBoundS.Radius;
 
-			l->Near = near_;
-			l->Far = far_;
+			l->Near = near_;// 0.1f;// near_;
+			l->Far = far_;// 200.0f;// far_;
 			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(left, right, bot, top, near_, far_);
 
 			XMMATRIX S = lightView * lightProj * T;
@@ -646,7 +653,7 @@ void TestApp::UpdateLights(const Timer& t)
 		}
 		else if (l->Type == LightType::POINT)
 		{
-			if (mDbgFlag)
+			if (true)
 				return;
 			//auto rotAngle = t.DeltaTime() / 2.0f;
 			//auto rotX = XMMatrixRotationY(rotAngle);
@@ -674,7 +681,7 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 {
 	XMMATRIX view = mPlane.View(); // XMLoadFloat4x4(&mLights[0]->View[gIdx]); // mPlane.View();
 	XMMATRIX proj = XMLoadFloat4x4(&mProj); // XMLoadFloat4x4(&mLights[0]->Proj[gIdx]); // mProj
-
+	
 	//auto det = XMMatrixDeterminant(view);
 	//view = XMMatrixInverse(&det, view);
 
@@ -906,9 +913,9 @@ void TestApp::BuildPSOs()
 	// PSO for shadow map
 	//	
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowPso = opaquePsoDesc;
-	shadowPso.RasterizerState.DepthBias = 150; // 1000; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
+	shadowPso.RasterizerState.DepthBias = 150; // 150 for point light; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
 	shadowPso.RasterizerState.DepthBiasClamp = 1.0f; 
-	shadowPso.RasterizerState.SlopeScaledDepthBias = 1.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
+	shadowPso.RasterizerState.SlopeScaledDepthBias = 2.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
 	//shadowPso.RasterizerState.DepthClipEnable = true;
 	shadowPso.pRootSignature = mRootSignature.Get();        // depth = 250000, depthscaled = 1.0f works OK with pointlight; 750000, 10, (5,35) pt
 	shadowPso.VS =
@@ -943,9 +950,9 @@ void TestApp::InitLights()
 	//++mNumSpotLights;
 
 	//auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
-	//dl->Light->Direction = { 0.57735f, 1.57735f, 0.57735f };
-	//dl->Light->Strength = { 0.8f, 0.8f, 0.8f };
-	//dl->Light->FalloffEnd = 1000.0f;
+	//dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
+	//dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
+	//dl->Light->FalloffEnd = 1500.0f;
 	//dl->Light->FalloffStart = 900.0f;
 
 	//mLights.push_back(dl);
@@ -957,9 +964,9 @@ void TestApp::InitLights()
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
-	pl->Light->Position = { -0.0f, 1.0f, 0.0f };
-	pl->Near = 1.0f;
-	pl->Far = 800.0f;
+	pl->Light->Position = { -0.0f, 2.0f, 1.0f };
+	pl->Near = 0.1f;
+	pl->Far = 400.0f; // TODO: calculate these based on scene bounds from light view
 
 	pl->BuildPLViewProj();
 	mLights.push_back(pl);
@@ -987,7 +994,7 @@ bool TestApp::Initialize()
 	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
 	// So we need the project path, or do as recommended, store in user/documents or something like that.
 	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
-	mProjectPath = L"F:\\GitHub\\Flight\\";
+	mProjectPath = L"D:\\GitHub\\Flight\\";
 
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -996,16 +1003,19 @@ bool TestApp::Initialize()
 	mSobelFilter = std::make_unique<SobelFilter>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	mOffscreenRT = std::make_unique<RenderTarget>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
 	
-	//mShadowMap = std::make_unique<ShadowMap>(mD3Device, 1024, 1024, LightType::DIRECTIONAL);
-
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
 	
 	BuildSceneBounds();
 
-	InitLights(); // InitLights must precede BuildDescriptorHeaps, because it needs to know how many descriptors each shadow map needs
+	// InitLights must precede BuildDescriptorHeaps, because it needs to know how many descriptors each shadow map needs
+	// Note that Light constructors do not begin to build descriptors, so that they can provide information to the construction
+	// of the heap.
+	InitLights(); 
 
+	/*
 	mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[0]));
 	mProj = mLights[0]->Proj;
+	*/
 
 	//XMStoreFloat4x4(&mProj, XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0f, 70.0f, 110.0f));
 
@@ -1358,8 +1368,8 @@ void TestApp::BuildRenderItems()
 	mDbgQuad->BaseVertexLocation = mDbgQuad->Geo->DrawArgs["dbgQuad"].BaseVertexLocation;
 
 	//auto ls = std::make_unique<RenderItem>(mNumFrameResources);
-	//auto pos = mLights[0]->Light->Position;
-	//XMStoreFloat4x4(&ls->World, XMMatrixTranslation(pos.x, pos.y, pos.z));
+	//auto pos = XMFLOAT3(10.0f, 0.0f, 10.0f);
+	//XMStoreFloat4x4(&ls->World, XMMatrixScaling(1.0f, 1.0f, 1.0f)*XMMatrixTranslation(pos.x, pos.y, pos.z));
 	//XMStoreFloat4x4(&ls->TexTransform, XMMatrixIdentity());
 	//ls->cbObjectIndex = cbObjectIndex++;
 	//ls->Mat = mMaterials["stone0"].get();
@@ -1399,7 +1409,7 @@ void TestApp::BuildRenderItems()
 
 	int j = 0;
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
-	for (auto& g : mGeometries["Level4"]->DrawArgs)
+	for (auto& g : mGeometries["Level3"]->DrawArgs)
 	{
 		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
 
@@ -1407,7 +1417,7 @@ void TestApp::BuildRenderItems()
 		ri->TexTransform = Math::Identity4x4();
 		ri->cbObjectIndex = cbObjectIndex++;
 		ri->Mat = mMaterials["stone0"].get();
-		ri->Geo = mGeometries["Level4"].get();
+		ri->Geo = mGeometries["Level3"].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ri->IndexCount = g.second.IndexCount;
 		ri->StartIndexLocation = g.second.StartIndexLocation;
@@ -1542,14 +1552,15 @@ void TestApp::BuildStaticGeometry()
 
 	// Let's load the static canyon geometry
 	auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
-	auto success = m->LoadOBJ(mProjectPath + L"Models//Level4.obj");
+	auto success = m->LoadOBJ(mProjectPath + L"Models//Level3.obj");
 	assert(success >= 0);
-	m->Name = "Level4";
+	m->Name = "Level3";
 	mGeometries[m->Name] = std::move(m);
 }
 
 void TestApp::BuildShadersAndInputLayout()
 {
+	// Why do shaders not compile if i pass in NumXLights as a macro, as opposed to a regular #define? TODO
 	const D3D_SHADER_MACRO alphaTestDefines[] =
 	{
 		"ALPHA_TEST", "1", NULL, NULL

@@ -85,6 +85,7 @@ float4 PS(VertexOut pin) : SV_Target
 #endif
 #endif
 
+
     const float shininess = 1.0f - gRoughness;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
