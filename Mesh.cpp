@@ -110,7 +110,7 @@ int Mesh::LoadOBJ(wstring filename)
 
             SubmeshGeometry sg;
             sg.BaseVertexLocation = 0;// vertices.size();
-            sg.StartIndexLocation = indices.size();
+            sg.StartIndexLocation = (UINT)indices.size();
             sg.IndexCount = (UINT)indices.size(); // must be set at end of object read
             
             DrawArgs[currObject] = sg;
@@ -153,8 +153,8 @@ int Mesh::LoadOBJ(wstring filename)
                     v.Normal = normals[::atoi(inds[2].c_str()) - 1];
 
                     // Register that we have added it, with its index into the vertex array
-                    verts_added[tokens[i]] = vertices.size();
-                    vertex_id = vertices.size();
+                    verts_added[tokens[i]] = (int)vertices.size();
+                    vertex_id = (int)vertices.size();
                     vertices.push_back(v);
                 }
 

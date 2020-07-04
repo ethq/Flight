@@ -423,15 +423,17 @@ void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 	}
 }
 
-void TestApp::UpdateShadowPassCB(std::shared_ptr<LightPovData> l, UINT idx = 0)
+// Convention: it is the Light classes responsibility to return view matrices that map from world space to view space.
+// passIdx is used purely for point lights, as they require 6 rendering passes, and idx tells us which one we want
+void TestApp::UpdateShadowPassCB(size_t lightIndex, UINT passIdx = 0)
 {
-	XMMATRIX view = XMLoadFloat4x4(&l->View[idx]);
+	auto& l = mLights[lightIndex];
+	XMMATRIX view = XMLoadFloat4x4(&l->View[passIdx]);
 	XMMATRIX proj = XMLoadFloat4x4(&l->Proj);
 
 	// Light view lives in light view space. So it must be inverted in order to take us from world->light viewspace
 	// Note: applies only to point lights! For directional; no need. 
-	// Current TODO: make this consistent
-
+	
 	//auto det = XMMatrixDeterminant(view);
 	//view = XMMatrixInverse(&det, view);
 
@@ -474,13 +476,18 @@ void TestApp::UpdateShadowPassCB(std::shared_ptr<LightPovData> l, UINT idx = 0)
 	//}
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
-	currPassCB->CopyData(1 + idx, mShadowPassCB);
+
+	// magic +1 due to the regular "main pass" constants
+	// magic +k*6 due to each light having 6 pass constants
+	currPassCB->CopyData(1 + lightIndex*6 + passIdx, mShadowPassCB);
 }
 
 void TestApp::DrawShadowMaps()
 {
-	for (auto l : mLights)
+	for (size_t k = 0; k < mLights.size(); ++k)
 	{
+		auto& l = mLights[k];
+
 		// point lights do 6 rendering passes for the cubemap
 		UINT count = 1;
 		if (l->Type == LightType::POINT)
@@ -489,7 +496,7 @@ void TestApp::DrawShadowMaps()
 		for (UINT i = 0; i < count; ++i)
 		{
 			// Update appropriate shadowmap pass constants - view and proj in particular
-			UpdateShadowPassCB(l, i);
+			UpdateShadowPassCB(k, i);
 
 			auto sm = l->Shadowmap();
 			auto dsv = sm->Dsv();
@@ -511,7 +518,10 @@ void TestApp::DrawShadowMaps()
 			// A little hacky:
 			// We know that FrameResource contains 1x regular passconstants, then 6 shadow passconstants. So we offset based on that
 			// Note that due to memcpy not being buffered, point lights require 6 passconstants to not overwrite memory before we hit gpu execution
-			D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + (1u+i) * passCBByteSize;
+			// Note #2: for multiple lights, we unfortunately need even more shadow passconstants; otherwise, they get overwritten as well!
+			//          to keep things compatible for every light being a point light, each light gets 6 passconstants - whether it is a point light or not
+			// TODO: clean this up; we can do this more tightly.
+			D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + (1u + k*6 + i) * passCBByteSize;
 			mCommandList->SetGraphicsRootConstantBufferView(2, passCBAddress);
 
 			mCommandList->SetPipelineState(mPSOs["shadowOpaque"].Get());
@@ -653,7 +663,7 @@ void TestApp::UpdateLights(const Timer& t)
 		}
 		else if (l->Type == LightType::POINT)
 		{
-			if (true)
+			if (false)
 				return;
 			//auto rotAngle = t.DeltaTime() / 2.0f;
 			//auto rotX = XMMatrixRotationY(rotAngle);
@@ -668,11 +678,11 @@ void TestApp::UpdateLights(const Timer& t)
 			//XMStoreFloat4x4(&ls->World, XMMatrixTranslation(l->Light->Position.x, l->Light->Position.y, l->Light->Position.z));
 			//ls->NumFramesDirty = mNumFrameResources;
 
-			auto movy = XMMatrixTranslation(0.0f, t.DeltaTime()/5.0f, 0.0f);
-			XMVECTOR lp = XMLoadFloat3(&l->Light->Position);
-			lp = XMVector3Transform(lp, movy);
-			XMStoreFloat3(&l->Light->Position, lp);
-			l->BuildPLViewProj();
+			//auto movy = XMMatrixTranslation(0.0f, t.DeltaTime()/5.0f, 0.0f);
+			//XMVECTOR lp = XMLoadFloat3(&l->Light->Position);
+			//lp = XMVector3Transform(lp, movy);
+			//XMStoreFloat3(&l->Light->Position, lp);
+			//l->BuildPLViewProj();
 		}
 	}
 }
@@ -707,10 +717,10 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 	size_t k = 0;
 	for (size_t i = 0; i < mLights.size(); ++i, ++k)
 	{
-		auto shadowTransform = XMLoadFloat4x4(&mLights[i]->ShadowTransform[0]); // dont think i need all the SF's for point lights.. only farplane Z
+		auto shadowTransform = XMLoadFloat4x4(&mLights[i]->ShadowTransform[0]); // dont need all the SF's for point lights.. only farplane Z
 		XMStoreFloat4x4(&mPassCB.ShadowTransform[k], XMMatrixTranspose(shadowTransform));
 	}
-	// fill the rest? YES. Shader code expects MaxLights float4x4s, so thats what we gotta give - otherwise itll read random crap for following variables
+	// fill the rest? YES. Shader expects MaxLights float4x4s, so thats what we gotta give - otherwise itll read random crap for following variables
 	for (size_t i = k; i < MaxLights; ++i, ++k)
 		mPassCB.ShadowTransform[k] = Math::Identity4x4();
 
@@ -746,7 +756,9 @@ void TestApp::BuildFrameResources()
 	// The magic +1 here is due to the sky sphere used for env mapping
 	// Another magic +1 for the debug quad
 
-	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); // one for doing regular passes, six for doing shadow passes. think maybe they are getting overwritten
+	// one for doing regular passes, six for doing shadow passes. 
+	// in a previous iteration of the holy code, these were getting overwritten and giving very strange rendering results
+	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); 
 	for (UINT i = 0; i < mNumFrameResources; ++i)
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(mD3Device.Get(), passCount, (UINT)mRenderItems.size() + 1 + 1, (UINT)mMaterials.size()));
@@ -949,18 +961,18 @@ void TestApp::InitLights()
 
 	//++mNumSpotLights;
 
-	//auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
-	//dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
-	//dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
-	//dl->Light->FalloffEnd = 1500.0f;
-	//dl->Light->FalloffStart = 900.0f;
+	auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
+	dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
+	dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
+	dl->Light->FalloffEnd = 1500.0f;
+	dl->Light->FalloffStart = 900.0f;
 
-	//mLights.push_back(dl);
-	//mNumDirLights++;
+	mLights.push_back(dl);
+	mNumDirLights++;
 
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
-	pl->Light->Strength = { 0.4f, 0.4f, 0.4f };
+	pl->Light->Strength = { 0.2f, 0.2f, 0.2f };
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
@@ -1190,17 +1202,31 @@ void TestApp::BuildDescriptors()
 
 	// IMPORTANT: MUST BE SORTED BY LIGHT TYPE PRIOR TO DESCRIPTOR CONSTRUCTION (add check TODO)
 
-	for(size_t i = 0; i < mNumDirLights+mNumSpotLights; ++i)
+	for (size_t i = 0; i < mNumDirLights + mNumSpotLights; ++i)
+	{
+		// magic +1 because the default rendering uses a depth stencil as well
 		mLights[i]->Shadowmap()->BuildDescriptors(
 			hDescriptor,
 			gDescriptor,
-			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), i+1, mDsvDescriptorSize));
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), (INT)i + 1, mDsvDescriptorSize));
+
+		// Directional and spot lights use a single SRV
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+		gDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+	}
 	
 	for (size_t i = mNumDirLights + mNumSpotLights; i < mLights.size(); ++i)
+	{
+		// magic +1 because the default rendering uses a depth stencil view as well
 		mLights[i]->Shadowmap()->BuildDescriptors(
 			hDescriptor,
 			gDescriptor,
-			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), i + 1, mDsvDescriptorSize));
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + (INT)mNumDirLights+mNumSpotLights + i*6, mDsvDescriptorSize));
+
+		// Point lights use a single SRV, but six depth views
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
+	}
 }
 
 void TestApp::BuildSobelRootSignature()
@@ -1440,42 +1466,42 @@ void TestApp::BuildStaticGeometry()
 	auto sphere2 = geo.CreateSphere(0.5f, 10, 10); // debug to track position of light
 	auto dbgquad = geo.CreateQuad(0.0f, 0.0f, 1.0f, 1.0f, 0.0f); // we just give ndc coordinates directly(e.g. identity view/world). they live in [-1, 1]^2
 
-	UINT boxVertexOffset = 0;
-	UINT gridVertexOffset = box.Vertices.size();
-	UINT sphereVertexOffset = gridVertexOffset + grid.Vertices.size();
-	UINT sphere2VertexOffset = sphereVertexOffset + sphere.Vertices.size();
-	UINT dbgquadVertexOffset = sphere2VertexOffset + sphere2.Vertices.size();
+	size_t boxVertexOffset = 0;
+	size_t gridVertexOffset = box.Vertices.size();
+	size_t sphereVertexOffset = gridVertexOffset + grid.Vertices.size();
+	size_t sphere2VertexOffset = sphereVertexOffset + sphere.Vertices.size();
+	size_t dbgquadVertexOffset = sphere2VertexOffset + sphere2.Vertices.size();
 
-	UINT boxIndexOffset = 0;
-	UINT gridIndexOffset = box.Indices32.size();
-	UINT sphereIndexOffset = gridIndexOffset + grid.Indices32.size();
-	UINT sphere2IndexOffset = sphereIndexOffset + sphere.Indices32.size();
-	UINT dbgquadIndexOffset = sphere2IndexOffset + sphere2.Indices32.size();
+	size_t boxIndexOffset = 0;
+	size_t gridIndexOffset = box.Indices32.size();
+	size_t sphereIndexOffset = gridIndexOffset + grid.Indices32.size();
+	size_t sphere2IndexOffset = sphereIndexOffset + sphere.Indices32.size();
+	size_t dbgquadIndexOffset = sphere2IndexOffset + sphere2.Indices32.size();
 
 	SubmeshGeometry boxSubmesh;
 	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-	boxSubmesh.StartIndexLocation = boxIndexOffset;
-	boxSubmesh.BaseVertexLocation = boxVertexOffset;
+	boxSubmesh.StartIndexLocation = (UINT)boxIndexOffset;
+	boxSubmesh.BaseVertexLocation = (INT)boxVertexOffset;
 
 	SubmeshGeometry gridSubmesh;
 	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-	gridSubmesh.StartIndexLocation = gridIndexOffset;
-	gridSubmesh.BaseVertexLocation = gridVertexOffset;
+	gridSubmesh.StartIndexLocation = (UINT)gridIndexOffset;
+	gridSubmesh.BaseVertexLocation = (INT)gridVertexOffset;
 
 	SubmeshGeometry sphereSubmesh;
 	sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
-	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
-	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
+	sphereSubmesh.StartIndexLocation = (UINT)sphereIndexOffset;
+	sphereSubmesh.BaseVertexLocation = (INT)sphereVertexOffset;
 
 	SubmeshGeometry sphere2Submesh;
 	sphere2Submesh.IndexCount = (UINT)sphere2.Indices32.size();
-	sphere2Submesh.StartIndexLocation = sphere2IndexOffset;
-	sphere2Submesh.BaseVertexLocation = sphere2VertexOffset;
+	sphere2Submesh.StartIndexLocation = (UINT)sphere2IndexOffset;
+	sphere2Submesh.BaseVertexLocation = (INT)sphere2VertexOffset;
 
 	SubmeshGeometry dbgquadSubmesh;
 	dbgquadSubmesh.IndexCount = (UINT)dbgquad.Indices32.size();
-	dbgquadSubmesh.StartIndexLocation = dbgquadIndexOffset;
-	dbgquadSubmesh.BaseVertexLocation = dbgquadVertexOffset;
+	dbgquadSubmesh.StartIndexLocation = (UINT)dbgquadIndexOffset;
+	dbgquadSubmesh.BaseVertexLocation = (INT)dbgquadVertexOffset;
 
 	auto totalVertices = box.Vertices.size() + grid.Vertices.size() + sphere.Vertices.size() + sphere2.Vertices.size() + dbgquad.Vertices.size();
 
