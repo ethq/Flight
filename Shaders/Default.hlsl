@@ -54,7 +54,7 @@ float4 PS(VertexOut pin) : SV_Target
     float4 ambient = gAmbientLight*diffuseAlbedo;
 
     // calculate shadowfactor for each light
-    ShadowFactors shadowFactors = (ShadowFactors)0.0f;
+    ShadowFactors shadowFactors = (ShadowFactors)1.0f;
 
     int i = 0;
 

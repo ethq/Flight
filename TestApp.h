@@ -49,6 +49,8 @@ private:
 	void LoadTextures();
 	void BuildMaterials();
 
+	void Pick();
+
 	virtual void CreateRtvAndDsvDescriptorHeaps() override;
 	void BuildDescriptorHeaps();
 	void BuildDescriptors();

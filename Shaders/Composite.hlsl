@@ -44,9 +44,6 @@ VertexOut VS(uint vid : SV_VertexID)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-	float xg = pin.PosH.x > 400.0f;
-	float yg = pin.PosH.y > 300.0f; // ??????????????? modified by samplelevel?
-
     float4 c = gBaseMap.SampleLevel(gsamPointClamp, pin.TexC, 0.0f);
 	float4 e = gEdgeMap.SampleLevel(gsamPointClamp, pin.TexC, 0.0f);
 
@@ -54,5 +51,5 @@ float4 PS(VertexOut pin) : SV_Target
 
 	//float ee = (2 - xg - yg) * e;
 	
-	return c;
+	return c * e;
 }

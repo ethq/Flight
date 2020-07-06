@@ -6,6 +6,8 @@
 #include <map>
 #include <vector>
 
+#include <limits> // std::numeric_limits
+
 using namespace std;
 using namespace DirectX;
 
@@ -51,6 +53,9 @@ int Mesh::LoadOBJ(wstring filename)
     vector<XMFLOAT3> normals;
     map<string, int> verts_added;
     float boundingRadius = 0.0f;
+    
+    float maxX = (std::numeric_limits<float>::lowest)(), maxY = (std::numeric_limits<float>::lowest)(), maxZ = (std::numeric_limits<float>::lowest)(),
+        minX = (std::numeric_limits<float>::max)(), minY = (std::numeric_limits<float>::max)(), minZ = (std::numeric_limits<float>::max)();
     
     vector<uint16_t> indices;
     vector<Vertex> vertices;
@@ -104,9 +109,21 @@ int Mesh::LoadOBJ(wstring filename)
         if (tokens[0] == "o")
         {
             auto currObject = tokens[1];
-            // Update last objects indexcount since we now know how many indices it has
+            
+            // Store & update previous object
             if (lastObject != "")
+            {
+                // Update last objects indexcount since we now know how many indices it has
                 DrawArgs[lastObject].IndexCount = (UINT)indices.size() - DrawArgs[lastObject].IndexCount;
+
+                // Fill out bounding box
+                XMVECTOR pt1{ minX, minY, minZ };
+                XMVECTOR pt2{ maxX, maxY, maxZ };
+                BoundingBox::CreateFromPoints(DrawArgs[lastObject].Bounds, pt1, pt2);
+
+                maxX = (std::numeric_limits<float>::lowest)(), maxY = (std::numeric_limits<float>::lowest)(), maxZ = (std::numeric_limits<float>::lowest)();
+                minX = (std::numeric_limits<float>::max)(), minY = (std::numeric_limits<float>::max)(), minZ = (std::numeric_limits<float>::max)();
+            }
 
             SubmeshGeometry sg;
             sg.BaseVertexLocation = 0;// vertices.size();
@@ -120,7 +137,26 @@ int Mesh::LoadOBJ(wstring filename)
             
         // Vertex position. These come first, so we create a new vertex
         if (tokens[0] == "v")
-            positions.push_back(DirectX::XMFLOAT3((float)::atof(tokens[1].c_str()), (float)::atof(tokens[2].c_str()), (float)::atof(tokens[3].c_str())));
+        {
+            auto x = (float)::atof(tokens[1].c_str());
+            auto y = (float)::atof(tokens[2].c_str());
+            auto z = (float)::atof(tokens[3].c_str());
+
+            if (x < minX)
+                minX = x;
+            if (x > maxX)
+                maxX = x;
+            if (y < minY)
+                minY = y;
+            if (y > maxY)
+                maxY = y;
+            if (z < minZ)
+                minZ = z;
+            if (z > maxZ)
+                maxZ = z;
+
+            positions.push_back(DirectX::XMFLOAT3(x, y, z));
+        }
         // Texture coordinate. All vertices constructed
         else if (tokens[0] == "vt")
             texcoords.push_back(XMFLOAT2((float)::atof(tokens[1].c_str()), (float)::atof(tokens[2].c_str())));
@@ -145,8 +181,7 @@ int Mesh::LoadOBJ(wstring filename)
                 {
                     // Construct vertex
                     auto inds = split(tokens[i], '/');
-                    //::OutputDebugStringA(tokens[i].c_str());
-                    //::OutputDebugStringA("\n");
+                    
                     Vertex v;
                     v.Pos = positions[::atoi(inds[0].c_str()) - 1];
                     v.TexC = texcoords[::atoi(inds[1].c_str()) - 1];
@@ -163,8 +198,14 @@ int Mesh::LoadOBJ(wstring filename)
             }
         }
     }
+
     // End of file - fix the index count in the last object
     DrawArgs[lastObject].IndexCount = (UINT)indices.size() - DrawArgs[lastObject].IndexCount;
+
+    // Fill out bounding box
+    XMVECTOR pt1{ minX, minY, minZ };
+    XMVECTOR pt2{ maxX, maxY, maxZ };
+    BoundingBox::CreateFromPoints(DrawArgs[lastObject].Bounds, pt1, pt2);
 
     // Aaand close out
     obj.close();
