@@ -45,12 +45,14 @@ void TestApp::OnMouseUp(WPARAM btnState, int x, int y)
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
 
-	Pick();
+	// Screen space coordinates never exceed float range
+	Pick(static_cast<float>(x), static_cast<float>(y));
 
 	ReleaseCapture();
 }
 
-void TestApp::Pick()
+// Takes an input coordinate in screen space.
+void TestApp::Pick(float x, float y)
 {
 	// Determine picking ray in view space
 	/*
@@ -61,8 +63,8 @@ void TestApp::Pick()
 
 	We implicitly assume that the backbuffer has dimensions (mClientWidth, mClientHeight)
 	*/
-	auto xn = (+2.0f * mLastMousePos.x / static_cast<float>(mClientWidth) - 1.0f) / mProj(0, 0);
-	auto yn = (-2.0f * mLastMousePos.y / static_cast<float>(mClientHeight) + 1.0f) / mProj(1, 1);
+	auto xn = (+2.0f * x / static_cast<float>(mClientWidth) - 1.0f) / mProj(0, 0);
+	auto yn = (-2.0f * y / static_cast<float>(mClientHeight) + 1.0f) / mProj(1, 1);
 
 	// Picking ray is now in view space
 	XMVECTOR rayOrigin = XMVectorSet( 0.0f, 0.0f, 0.0f, 1.0f );
@@ -81,17 +83,52 @@ void TestApp::Pick()
 		auto toLocal = XMMatrixMultiply(invView, invWorld); // invView* invWorld;
 
 		// ray to local space
-		auto locRayOrigin = XMVector3TransformCoord(rayOrigin, toLocal); // WOOPS. multiple transforms; ray should be loop scoped or copied
+		auto locRayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
 		auto locRayDir = XMVector3TransformNormal(rayDir, toLocal);
 		locRayDir = XMVector3Normalize(locRayDir);
 		
-		// Does our ray intersect the renderitem?
+		// Does our ray intersect the BB?
 		
-		// ray parametrization, to be determined
+		// ray parameter at closest collision point
 		float tmin = 0.0f;
 		if (ri->BoundsB.Intersects(locRayOrigin, locRayDir, tmin))
 		{
 			::OutputDebugStringA(ri->Name.c_str());
+
+			// TODO make this optional;
+
+			// We hit the bounding box, but we may not have hit the object itself. 
+			// To find out we do ray-tri intersections
+
+			// The submesh of a given renderitem belongs to a mesh, which stores copies of v/ibuffers
+			auto vertices = (Vertex*)ri->Geo->VertexBufferCPU->GetBufferPointer();
+			auto indices = (std::uint16_t*)ri->Geo->IndexBufferCPU->GetBufferPointer();
+
+			UINT triCount = ri->IndexCount / 3;
+			
+			// Keep track of which triangle is the closest; for now we iterate over all tris in the mesh
+			tmin = Math::Infty;
+			for (UINT i = 0; i < triCount; ++i)
+			{
+				auto i0 = indices[ri->StartIndexLocation + i * 3 + 0];
+				auto i1 = indices[ri->StartIndexLocation + i * 3 + 1];
+				auto i2 = indices[ri->StartIndexLocation + i * 3 + 2];
+
+				auto v0 = XMLoadFloat3(&vertices[i0].Pos);
+				auto v1 = XMLoadFloat3(&vertices[i1].Pos);
+				auto v2 = XMLoadFloat3(&vertices[i2].Pos);
+
+				float t = 0.0f;
+
+				if (TriangleTests::Intersects(locRayOrigin, locRayDir, v0, v1, v2, t))
+				{
+					if (t < tmin)
+						tmin = t;
+				}
+			}
+			
+			if (tmin != Math::Infty)
+				::OutputDebugStringA("Actual hit");
 		}
 	}
 }

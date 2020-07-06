@@ -49,7 +49,7 @@ private:
 	void LoadTextures();
 	void BuildMaterials();
 
-	void Pick();
+	void Pick(float x, float y);
 
 	virtual void CreateRtvAndDsvDescriptorHeaps() override;
 	void BuildDescriptorHeaps();
