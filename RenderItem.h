@@ -17,6 +17,9 @@ struct RenderItem
 
 	DirectX::XMFLOAT4X4 TexTransform = Math::Identity4x4();
 
+	DirectX::BoundingBox BoundsB{};
+	DirectX::BoundingSphere BoundsS{};
+
 	std::string Name;
 
 	// We use a circular array of frame "resources" to mitigate cpu/gpu locking. As such, set this to however many

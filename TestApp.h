@@ -43,11 +43,13 @@ private:
 	void UpdateObjectCBs(const Timer&);
 	void UpdateMaterialCBs(const Timer&);
 	void UpdateMainPassCB(const Timer&);
-	void UpdateShadowPassCB(std::shared_ptr<LightPovData>, UINT idx);
+	void UpdateShadowPassCB(size_t lightIndex, UINT passIndex);
 	void UpdateLights(const Timer&);
 
 	void LoadTextures();
 	void BuildMaterials();
+
+	void Pick(float x, float y);
 
 	virtual void CreateRtvAndDsvDescriptorHeaps() override;
 	void BuildDescriptorHeaps();

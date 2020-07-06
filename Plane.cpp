@@ -21,9 +21,9 @@ void Plane::UpdatePosition()
 	DirectX::XMMATRIX T = P * R * Y;
 
 
-	xax = DirectX::XMVector4Transform(xax, T);
-	yax = DirectX::XMVector4Transform(yax, T);
-	zax = DirectX::XMVector4Transform(zax, T);
+	xax = XMVector3Normalize(XMVector4Transform(xax, T));
+	yax = XMVector3Normalize(XMVector4Transform(yax, T));
+	zax = XMVector3Normalize(XMVector4Transform(zax, T));
 
 	DirectX::XMStoreFloat4(&mAxisX, xax);
 	DirectX::XMStoreFloat4(&mAxisY, yax);
@@ -32,7 +32,7 @@ void Plane::UpdatePosition()
 	// Update position
 
 	// acceleration modulation hack
-	float accel = 0.01f;
+	float accel = 0.1f;
 	auto pos = DirectX::XMLoadFloat4(&mPos);
 
 	if (mIsAccelerating)

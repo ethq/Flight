@@ -96,8 +96,8 @@ float GetNormalizedDepth(float z)
 {
     // For the rotating cubes w/ pl, I used
     // near = 1, far = 800
-    float near = 0.1f;
-    float far = 400.0f;
+    float near = 1.0f;
+    float far = 800.0f;
 
     return far / (far - near) - near * far / ((far - near) * z);
 }

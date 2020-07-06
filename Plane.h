@@ -136,7 +136,7 @@ private:
 
 	bool mIsReversing = false;
 
-	DirectX::XMFLOAT4 mPos = { 0.0f, 2.0f, -15.0f, 1.0f };
+	DirectX::XMFLOAT4 mPos = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 	DirectX::XMFLOAT4X4 mView;
 

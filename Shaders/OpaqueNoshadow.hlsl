@@ -1,3 +1,11 @@
+//
+// -- NOT CURRENTLY IN USE -- 
+// 
+// Current code uses Default.hlsl to render w/o shadows by supplying a SHADOW define. 
+// May be desireable to have a render with only ambient lighting as well, for the sobel pass
+//
+
+
 #include "Common.hlsl"
 
 struct VertexIn
@@ -49,17 +57,23 @@ float4 PS(VertexOut pin) : SV_Target
     // Light terms.
     float4 ambient = gAmbientLight*diffuseAlbedo;
 
+    ShadowFactors shadowFactors = (ShadowFactors)1.0f;
+
+    for (i = 0; i < NUM_DIR_LIGHTS + NUM_SPOT_LIGHTS + NUM_POINT_LIGHTS; ++i)
+    {
+        shadowFactors.sf[i] = 1.0f;
+    }
+
     const float shininess = 1.0f - gRoughness;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        pin.NormalW, toEyeW, shadowFactor);
+        pin.NormalW, toEyeW, shadowFactors);
 
     float4 litColor = ambient + directLight;
 
     // Common convention to take alpha from diffuse albedo.
     litColor.a = diffuseAlbedo.a;
-
+    
     return litColor;
 }
 

@@ -34,12 +34,8 @@ VertexOut VS(VertexIn vin)
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
 
-#if defined SHADOW
     // Generate projective tex-coords to project shadow map onto scene.
     vout.ShadowPosH = mul(posW, gShadowTransform[0]);
-#else
-    vout.ShadowPosH = float4(1.0f, 1.0f, 1.0f, 1.0f);
-#endif
 
     return vout;
 }
@@ -58,7 +54,7 @@ float4 PS(VertexOut pin) : SV_Target
     float4 ambient = gAmbientLight*diffuseAlbedo;
 
     // calculate shadowfactor for each light
-    ShadowFactors shadowFactors = (ShadowFactors)0.0f;
+    ShadowFactors shadowFactors = (ShadowFactors)1.0f;
 
     int i = 0;
 
