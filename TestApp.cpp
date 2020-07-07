@@ -462,12 +462,6 @@ void TestApp::DrawFullscreenQuad(ID3D12GraphicsCommandList* cmdList)
 
 void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
-	UINT objCBByteSize = Utilities::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	UINT matCBByteSize = Utilities::CalcConstantBufferByteSize(sizeof(MaterialConstants)); // no need to do this every frame, just do at init
-
-	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-	auto matCB = mCurrFrameResource->MaterialCB->Resource();
-	
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
 		auto ri = ritems[i];
@@ -476,23 +470,13 @@ void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-		UINT objCount = (UINT)mRenderItems.size() + 1 + 1; // magic +1 for this bloody env cube map which is really bloody beginning to annoy me TODO
-
-		// Offset to CBV in heap 
-		UINT cbvIndex = mCurrFrameResourceIndex * objCount + ri->cbObjectIndex;
-		auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart());
-		cbvHandle.Offset(cbvIndex, mCbvSrvUavDescriptorSize);
-
-		// Offset to SRV in texture heap
-		auto texHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart());
-		texHandle.Offset(mNumFrameResources*objCount + ri->Mat->DiffuseSrvHeapIndex, mCbvSrvUavDescriptorSize);
-
 		// Grab material constant buffer
-		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+		//D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-		cmdList->SetGraphicsRootDescriptorTable(0, texHandle);
-		cmdList->SetGraphicsRootDescriptorTable(1, cbvHandle);
-		cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+		//cmdList->SetGraphicsRootDescriptorTable(1, cbvHandle);
+		//cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+		UpdateInstanceBuffer(ri->Id());
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -825,6 +809,7 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 }
 
 
+// Render items are guaranteed to be constructed at this point
 void TestApp::BuildFrameResources()
 {
 	// Things are starting to get ready for a refactor:
@@ -834,9 +819,23 @@ void TestApp::BuildFrameResources()
 	// one for doing regular passes, six for doing shadow passes. 
 	// in a previous iteration of the holy code, these were getting overwritten and giving very strange rendering results
 	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); 
+
+	// each renderitem must have an uploadbuffer of instance data
+	std::map<UINT, UINT> rItemInstances;
+	for (auto& ri : mRenderItems)
+	{
+		rItemInstances[ri->Id()] = ri->MaxInstances;
+	}
+
+	// Some render items are constructed outside of regular initialization; for now, they are:
+	// - Environment map
+	// - Debug quad for shadows
+	rItemInstances[mSkydome->Id()] = mSkydome->MaxInstances;
+	rItemInstances[mDbgQuad->Id()] = mDbgQuad->MaxInstances;
+
 	for (UINT i = 0; i < mNumFrameResources; ++i)
 	{
-		mFrameResources.push_back(std::make_unique<FrameResource>(mD3Device.Get(), passCount, (UINT)mRenderItems.size() + 1 + 1, (UINT)mMaterials.size()));
+		mFrameResources.push_back(std::make_unique<FrameResource>(mD3Device.Get(), passCount, rItemInstances, (UINT)mMaterials.size()));
 	}
 }
 
@@ -1141,40 +1140,9 @@ Note: As it is, the heap needs to be built in order:
 */
 void TestApp::BuildDescriptors()
 {
-	// Build a view to each buffer, of which we have one for each object for each frame resource
-	UINT objCBByteSize = Utilities::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-	UINT objCount = (UINT)mRenderItems.size() + 1 + 1; // yet another magic cubemap constant... this time for the sphere. and +1 for dbgquad
-
-	for (UINT frameIndex = 0; frameIndex < mNumFrameResources; ++frameIndex)
-	{
-		auto objectCB = mFrameResources[frameIndex]->ObjectCB->Resource();
-		for (UINT i = 0; i < objCount; ++i)
-		{
-			D3D12_GPU_VIRTUAL_ADDRESS cbAddress = objectCB->GetGPUVirtualAddress();
-
-			// Offset to current object in the _buffer_
-			cbAddress += i * objCBByteSize;
-
-			// Offset to the object cbv in the descriptor heap
-			int heapIndex = frameIndex * objCount + i;
-			auto handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetCPUDescriptorHandleForHeapStart());
-			handle.Offset(heapIndex, mCbvSrvUavDescriptorSize); // mCbvSrvUavDescSize is set during D3 initialization in D3Base.
-
-			D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
-			cbvDesc.BufferLocation = cbAddress;
-			cbvDesc.SizeInBytes = objCBByteSize;
-
-			mD3Device->CreateConstantBufferView(&cbvDesc, handle);
-		}
-	}
-
 	// We put textures at the end of the object constants. Could as well have put the pass cb in here but w/e
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mCbvDescHeap->GetCPUDescriptorHandleForHeapStart());
-	hDescriptor.Offset(mNumFrameResources * objCount, mCbvSrvUavDescriptorSize);
-
 	CD3DX12_GPU_DESCRIPTOR_HANDLE gDescriptor(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart());
-	gDescriptor.Offset(mNumFrameResources * objCount, mCbvSrvUavDescriptorSize);
 
 	auto bricksTex = mTextures["bricksTex"]->Resource;
 	auto stoneTex = mTextures["stoneTex"]->Resource;
@@ -1219,10 +1187,6 @@ void TestApp::BuildDescriptors()
 	srvDesc.Format = mTextures["envTex"]->Resource->GetDesc().Format;
 
 	mD3Device->CreateShaderResourceView(mTextures["envTex"]->Resource.Get(), &srvDesc, hDescriptor);
-
-	// BlurFilter builds its own descs, but it needs OUR heap to do it... the nerve.
-	// TODO no longer need this if we continually offset the gpu descriptor.. leads to some more calls tho
-	UINT blurDescOffset = (UINT)(mRenderItems.size()*mNumFrameResources + mTextures.size());
 	
 	hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
 	gDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
@@ -1230,19 +1194,16 @@ void TestApp::BuildDescriptors()
 	mBlurFilter->BuildDescriptors(
 		hDescriptor,
 		gDescriptor,
-		//CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart(), blurDescOffset, mCbvSrvUavDescriptorSize),
 		mCbvSrvUavDescriptorSize
 	);
 
 	// TODO make the filters take handles by ref, so that they remain offset after use?
 	hDescriptor.Offset(mBlurFilter->DescriptorCount(), mCbvSrvUavDescriptorSize);
 	gDescriptor.Offset(mBlurFilter->DescriptorCount(), mCbvSrvUavDescriptorSize);
-
-	UINT sobelOffset = blurDescOffset + mBlurFilter->DescriptorCount();
+	
 	mSobelFilter->BuildDescriptors(
 		hDescriptor,
 		gDescriptor,
-		//CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart(), blurDescOffset, mCbvSrvUavDescriptorSize),
 		mCbvSrvUavDescriptorSize
 	);
 
@@ -1252,11 +1213,9 @@ void TestApp::BuildDescriptors()
 	hDescriptor.Offset(mSobelFilter->DescriptorCount(), mCbvSrvUavDescriptorSize);
 	gDescriptor.Offset(mSobelFilter->DescriptorCount(), mCbvSrvUavDescriptorSize);
 
-	UINT osrtOffset = sobelOffset + mSobelFilter->DescriptorCount();
 	mOffscreenRT->BuildDescriptors(
 		hDescriptor,
 		gDescriptor,
-		//CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvDescHeap->GetGPUDescriptorHandleForHeapStart(), osrtOffset, mCbvSrvUavDescriptorSize),
 		CD3DX12_CPU_DESCRIPTOR_HANDLE(rtvStart, rtvOffset, mRtvDescriptorSize)
 	);
 
@@ -1445,25 +1404,25 @@ void TestApp::BuildRootSignature()
 
 void TestApp::BuildRenderItems()
 {
-	UINT cbObjectIndex = 0;
-
 	mSkydome = std::make_unique<RenderItem>(mNumFrameResources);
 
-	XMStoreFloat4x4(&mSkydome->World, XMMatrixScaling(10000.0f, 10000.0f, 10000.0f));
-	mSkydome->TexTransform = Math::Identity4x4();
-	mSkydome->cbObjectIndex = cbObjectIndex++;
-	mSkydome->Mat = mMaterials["envMap"].get();
+	InstanceData idata;
+	XMStoreFloat4x4(&idata.World, XMMatrixScaling(10000.0f, 10000.0f, 10000.0f));
+	// TODO SET MATERIAL INDEX
+	mSkydome->Instances.push_back(idata);
+
 	mSkydome->Geo = mGeometries["shapes"].get();
 	mSkydome->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	mSkydome->IndexCount = mSkydome->Geo->DrawArgs["sphere"].IndexCount;
 	mSkydome->StartIndexLocation = mSkydome->Geo->DrawArgs["sphere"].StartIndexLocation;
 	mSkydome->BaseVertexLocation = mSkydome->Geo->DrawArgs["sphere"].BaseVertexLocation;
 
+	idata.World = Math::Identity4x4();
+
 	mDbgQuad = std::make_unique<RenderItem>(mNumFrameResources);
-	mDbgQuad->World = Math::Identity4x4();
-	mDbgQuad->TexTransform = Math::Identity4x4();
-	mDbgQuad->cbObjectIndex = cbObjectIndex++;
-	mDbgQuad->Mat = mMaterials["stone0"].get();
+	//TODO SET MATERIAL INDEX
+	mDbgQuad->Instances.push_back(idata);
+
 	mDbgQuad->Geo = mGeometries["shapes"].get();
 	mDbgQuad->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	mDbgQuad->IndexCount = mDbgQuad->Geo->DrawArgs["dbgQuad"].IndexCount;
@@ -1516,10 +1475,10 @@ void TestApp::BuildRenderItems()
 	{
 		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
 
-		XMStoreFloat4x4(&ri->World, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-		ri->TexTransform = Math::Identity4x4();
-		ri->cbObjectIndex = cbObjectIndex++;
-		ri->Mat = mMaterials["stone0"].get();
+		idata.World = Math::Identity4x4();
+		// TODO SET MATINDEX
+		ri->Instances.push_back(idata);
+		
 		ri->Geo = mGeometries["Level6"].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ri->IndexCount = g.second.IndexCount;
@@ -1797,25 +1756,46 @@ void TestApp::BuildMaterials()
 	mMaterials[sky->Name] = std::move(sky);
 }
 
-void TestApp::UpdateMaterialCBs(const Timer& t)
+void TestApp::UpdateInstanceBuffer(UINT renderItemId)
 {
-	auto matCB = mCurrFrameResource->MaterialCB.get();
-
-	for (auto& m : mMaterials)
+	for (auto& ri : mRenderItems)
 	{
-		Material* mat = m.second.get();
+		auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[ri->Id()];
+
+		for (size_t i = 0; i < ri->Instances.size(); ++i)
+		{
+			XMMATRIX world = XMLoadFloat4x4(&ri->Instances[i].World);
+
+			InstanceData data;
+			XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
+			data.MatIndex = ri->Instances[i].MatIndex;
+
+			// Write the instance data to structured buffer for the visible objects.
+			currInstanceBuffer->CopyData(i, data);
+		}
+	}
+}
+
+void TestApp::UpdateMaterialBuffer(const Timer& t)
+{
+	auto currMaterialBuffer = mCurrFrameResource->MaterialBuffer.get();
+	for (auto& e : mMaterials)
+	{
+		// Only update if there are changes
+		Material* mat = e.second.get();
 		if (mat->NumFramesDirty > 0)
 		{
 			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
-			MaterialConstants matc;
-			matc.DiffuseAlbedo = mat->DiffuseAlbedo;
-			matc.FresnelR0 = mat->FresnelR0;
-			matc.Roughness = mat->Roughness;
 
-			XMStoreFloat4x4(&matc.MatTransform, XMMatrixTranspose(matTransform));
+			MaterialData matData;
+			matData.DiffuseAlbedo = mat->DiffuseAlbedo;
+			matData.FresnelR0 = mat->FresnelR0;
+			matData.Roughness = mat->Roughness;
+			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
 
-			matCB->CopyData(mat->MatCBIndex, matc);
+			currMaterialBuffer->CopyData(mat->MatCBIndex, matData);
 
+			// Next FrameResource need to be updated too.
 			mat->NumFramesDirty--;
 		}
 	}

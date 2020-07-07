@@ -5,7 +5,6 @@ TextureCube  gCubeMap            : register(t1);
 Texture2D    gShadowMap[max(NUM_SPOT_LIGHTS + NUM_DIR_LIGHTS, 1)]       : register(t2);
 TextureCube  gPointShadowMap[max(NUM_POINT_LIGHTS, 1)]  : register(t0, space1);
 
-
 SamplerState gsamPointWrap        : register(s0);
 SamplerState gsamPointClamp       : register(s1);
 SamplerState gsamLinearWrap       : register(s2);
@@ -14,12 +13,31 @@ SamplerState gsamAnisotropicWrap  : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 SamplerComparisonState gsamShadow : register(s6);
 
-// Constant data that varies per frame.
-cbuffer cbPerObject : register(b0)
+struct InstanceData
 {
-    float4x4 gWorld;
-    float4x4 gTexTransform;
+    float4x4 World;
+
+    uint MaterialIndex;
+    uint ipad0;
+    uint ipad1;
+    uint ipad2;
 };
+
+struct MaterialData
+{
+    float4 DiffuseAlbedo;
+    float3 FresnelR0;
+    float Roughness;
+
+    uint DiffuseMapIndex;
+    uint mpad0;
+    uint mpad1;
+    uint mpad2;
+};
+
+
+StructuredBuffer<InstanceData> gInstanceData : register(t0, space2);
+StructuredBuffer<MaterialData> gMaterialData : register(t1, space2);
 
 cbuffer cbPass : register(b1)
 {
@@ -45,14 +63,6 @@ cbuffer cbPass : register(b1)
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
     // are spot lights for a maximum of MaxLights per object.
     Light gLights[MAX_LIGHTS];
-};
-
-cbuffer cbMaterial : register(b2)
-{
-    float4   gDiffuseAlbedo;
-    float3   gFresnelR0;
-    float    gRoughness;
-    float4x4 gMatTransform;
 };
 
 //---------------------------------------------------------------------------------------

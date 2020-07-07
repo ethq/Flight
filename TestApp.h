@@ -40,8 +40,8 @@ private:
 	virtual void OnKeyUp(WPARAM, LPARAM) override;
 
 	void UpdateGeometry(const Timer&);
-	void UpdateObjectCBs(const Timer&);
-	void UpdateMaterialCBs(const Timer&);
+	void UpdateInstanceBuffer(UINT);
+	void UpdateMaterialBuffer(const Timer&);
 	void UpdateMainPassCB(const Timer&);
 	void UpdateShadowPassCB(size_t lightIndex, UINT passIndex);
 	void UpdateLights(const Timer&);

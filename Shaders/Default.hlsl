@@ -14,18 +14,25 @@ struct VertexOut
     float3 PosW    : POSITION1;
     float3 NormalW : NORMAL;
     float2 TexC    : TEXCOORD;
+
+    nointerpolation uint MatIndex : MATINDEX;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
     VertexOut vout = (VertexOut)0.0f;
 
+    InstanceData idata = gInstanceData[instanceID];
+
+    float4x4 world = idata.World;
+    vout.MatIndex = idata.MaterialIndex;
+
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    float4 posW = mul(float4(vin.PosL, 1.0f), world);
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
-    vout.NormalW = mul(vin.NormalL, (float3x3)gWorld);
+    vout.NormalW = mul(vin.NormalL, (float3x3)world);
 
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gViewProj);
@@ -42,7 +49,9 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 diffuseAlbedo = gDiffuseAlbedo; // gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC)* gDiffuseAlbedo;
+    MaterialData mdata = gMaterialData[pin.MatIndex];
+
+    float4 diffuseAlbedo = mdata.DiffuseAlbedo; // gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC)* gDiffuseAlbedo;
 	
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -82,8 +91,8 @@ float4 PS(VertexOut pin) : SV_Target
 #endif
 
 
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
+    const float shininess = 1.0f - mdata.Roughness;
+    Material mat = { diffuseAlbedo, mdata.FresnelR0, shininess };
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
         pin.NormalW, toEyeW, shadowFactors);
 
