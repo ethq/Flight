@@ -24,9 +24,8 @@ void TestApp::Update(const Timer& t)
 	}
 
 	UpdateGeometry(t);
-
-	UpdateObjectCBs(t);
-	UpdateMaterialCBs(t);
+	UpdateInstanceBuffer(t);
+	UpdateMaterialBuffer(t);
 	UpdateLights(t);
 	//UpdateShadowPassCB(t); // called in drawshadowmap
 	UpdateMainPassCB(t);
@@ -76,7 +75,7 @@ void TestApp::Pick(float x, float y)
 
 	for (auto& ri : mRenderItems)
 	{
-		auto world = XMLoadFloat4x4(&ri->World);
+		auto world = XMLoadFloat4x4(&ri->Instances[0].World);
 		det = XMMatrixDeterminant(world);
 		auto invWorld = XMMatrixInverse(&det, world);
 
@@ -296,8 +295,8 @@ void TestApp::UpdateGeometry(const Timer& t)
 		auto roty = XMMatrixRotationY(t.DeltaTime() * localRate);
 		auto rotz = XMMatrixRotationZ(t.DeltaTime() * localRate);
 		
-		XMMATRIX pos = XMLoadFloat4x4(&ri->World);
-		XMStoreFloat4x4(&ri->World, rotx * roty * pos);
+		XMMATRIX pos = XMLoadFloat4x4(&ri->Instances[0].World);
+		XMStoreFloat4x4(&ri->Instances[0].World, rotx * roty * pos);
 
 		ri->NumFramesDirty = mNumFrameResources;
 	}
@@ -337,8 +336,15 @@ void TestApp::Draw(const Timer& t)
 
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
+	// Texture descriptors are given at the beginning
+	auto tex = mCbvDescHeap->GetGPUDescriptorHandleForHeapStart();
+	mCommandList->SetGraphicsRootDescriptorTable(0, tex);
+
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+	auto matSB = mCurrFrameResource->MaterialBuffer->Resource();
+	mCommandList->SetGraphicsRootShaderResourceView(3, matSB->GetGPUVirtualAddress());
 
 	// dont bind shadow and environment map
 	mCommandList->SetGraphicsRootDescriptorTable(4, mNullSrv);
@@ -469,16 +475,12 @@ void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
 		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+		
+		// Bind instance buffer
+		auto ib = mCurrFrameResource->InstanceBuffers[ri->Id()]->Resource();
+		cmdList->SetGraphicsRootShaderResourceView(1, ib->GetGPUVirtualAddress());
 
-		// Grab material constant buffer
-		//D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
-
-		//cmdList->SetGraphicsRootDescriptorTable(1, cbvHandle);
-		//cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
-
-		UpdateInstanceBuffer(ri->Id());
-
-		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		cmdList->DrawIndexedInstanced(ri->IndexCount, (UINT)ri->Instances.size(), ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
 }
 
@@ -589,46 +591,6 @@ void TestApp::DrawShadowMaps()
 
 			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(sm->Resource(),
 				D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
-		}
-	}
-}
-
-void TestApp::UpdateObjectCBs(const Timer& gt)
-{
-	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
-
-	//auto ri = mRenderItems[0].get();
-	//auto pos = mLights[0]->Light->Position;
-	//XMStoreFloat4x4(&ri->World, XMMatrixTranslation(pos.x, pos.y, pos.z));
-	//ri->NumFramesDirty = mNumFrameResources;
-
-	// Have to manually udpate skydome for the moment... TODO. actually doesnt even need updating
-	if (mSkydome->NumFramesDirty)
-	{
-		XMMATRIX world = XMLoadFloat4x4(&mSkydome->World);
-
-		ObjectConstants objc;
-		XMStoreFloat4x4(&objc.World, XMMatrixTranspose(world));
-
-		currObjectCB->CopyData(mSkydome->cbObjectIndex, objc);
-
-		mSkydome->NumFramesDirty--;
-	}
-	for (auto& e : mRenderItems)
-	{
-		// Only update the cbuffer data if the constants have changed.  
-		// This needs to be tracked per frame resource.
-		if (e->NumFramesDirty > 0)
-		{
-			XMMATRIX world = XMLoadFloat4x4(&e->World);
-
-			ObjectConstants objConstants;
-			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
-
-			currObjectCB->CopyData(e->cbObjectIndex, objConstants);
-
-			// Next FrameResource need to be updated too.
-			e->NumFramesDirty--;
 		}
 	}
 }
@@ -1347,32 +1309,32 @@ void TestApp::BuildPostprocessRootSignature()
 void TestApp::BuildRootSignature()
 {
 	// Root parameter can be a table, root descriptor or root constants.
-	CD3DX12_ROOT_PARAMETER slotRootParameter[7]; // material cb + texture cb + object cb + pass cb
+	CD3DX12_ROOT_PARAMETER slotRootParameter[7]; 
 
+	// Diffuse textures
 	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // for object texture // todo texture array
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, (UINT)mTextures.size(), 0, 3); // Hurray for dynamic indexing. Does kill support for HLSL < 5.1 though.
 
+	// Environment cubemap
 	CD3DX12_DESCRIPTOR_RANGE envTable;
-	envTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // cube map. We use 3 tables since theyre typically not used at the same time
+	envTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // cube map. We use 3 tables since theyre typically not used at the same time
 
-	// for (flat) shadow maps. must add another table for cubemapped point light shadows
-	// note that it is crucial that the descriptors for the flat shadowmaps are not mixed with the point light descriptors!
-
+	// Flat shadow maps
+	// Note: it is crucial that the descriptors for the flat shadowmaps are not mixed with the point light descriptors!
 	CD3DX12_DESCRIPTOR_RANGE shdTable;
-	shdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, max(mNumDirLights + mNumSpotLights, 1), 2);
+	shdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, max(mNumDirLights + mNumSpotLights, 1), 1);
 
+	// Point shadow maps
 	CD3DX12_DESCRIPTOR_RANGE ptShdTable;
 	ptShdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, max(mNumPointLights, 1), 0, 1); // use space1 as shader is unaware of the size of t3
 
-
-	CD3DX12_DESCRIPTOR_RANGE cbvTable0;
-	cbvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-
 	// Create root CBVs.
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable);  // texture cb
-	slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable0); // object cb
-	slotRootParameter[2].InitAsConstantBufferView(1); // pass cb
-	slotRootParameter[3].InitAsConstantBufferView(2); // material cb
+	//slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable0); // object cb
+	slotRootParameter[1].InitAsShaderResourceView(0, 2); // Instance buffer
+	slotRootParameter[2].InitAsConstantBufferView(0); // pass cb
+	//slotRootParameter[3].InitAsConstantBufferView(2); // material cb
+	slotRootParameter[3].InitAsShaderResourceView(1, 2); // Material buffer
 	slotRootParameter[4].InitAsDescriptorTable(1, &shdTable); 
 	slotRootParameter[5].InitAsDescriptorTable(1, &envTable);
 	slotRootParameter[6].InitAsDescriptorTable(1, &ptShdTable);
@@ -1416,10 +1378,9 @@ void TestApp::BuildRenderItems()
 	mSkydome->IndexCount = mSkydome->Geo->DrawArgs["sphere"].IndexCount;
 	mSkydome->StartIndexLocation = mSkydome->Geo->DrawArgs["sphere"].StartIndexLocation;
 	mSkydome->BaseVertexLocation = mSkydome->Geo->DrawArgs["sphere"].BaseVertexLocation;
-
-	idata.World = Math::Identity4x4();
-
+	
 	mDbgQuad = std::make_unique<RenderItem>(mNumFrameResources);
+	idata.World = Math::Identity4x4();
 	//TODO SET MATERIAL INDEX
 	mDbgQuad->Instances.push_back(idata);
 
@@ -1431,10 +1392,9 @@ void TestApp::BuildRenderItems()
 
 	//auto ls = std::make_unique<RenderItem>(mNumFrameResources);
 	//auto pos = XMFLOAT3(10.0f, 0.0f, 10.0f);
-	//XMStoreFloat4x4(&ls->World, XMMatrixScaling(1.0f, 1.0f, 1.0f)*XMMatrixTranslation(pos.x, pos.y, pos.z));
-	//XMStoreFloat4x4(&ls->TexTransform, XMMatrixIdentity());
-	//ls->cbObjectIndex = cbObjectIndex++;
-	//ls->Mat = mMaterials["stone0"].get();
+	//XMStoreFloat4x4(&idata.World, XMMatrixScaling(1.0f, 1.0f, 1.0f)*XMMatrixTranslation(pos.x, pos.y, pos.z));
+	//ls->Instances.push_back(idata);
+	//
 	//ls->Geo = mGeometries["shapes"].get();
 	//ls->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	//ls->IndexCount = ls->Geo->DrawArgs["sphere2"].IndexCount;
@@ -1471,7 +1431,7 @@ void TestApp::BuildRenderItems()
 
 	int j = 0;
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
-	for (auto& g : mGeometries["Level6"]->DrawArgs)
+	for (auto& g : mGeometries[mLevel.c_str()]->DrawArgs)
 	{
 		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
 
@@ -1479,7 +1439,7 @@ void TestApp::BuildRenderItems()
 		// TODO SET MATINDEX
 		ri->Instances.push_back(idata);
 		
-		ri->Geo = mGeometries["Level6"].get();
+		ri->Geo = mGeometries[mLevel.c_str()].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ri->IndexCount = g.second.IndexCount;
 		ri->StartIndexLocation = g.second.StartIndexLocation;
@@ -1499,7 +1459,7 @@ void TestApp::BuildStaticGeometry()
 	GeometryGenerator geo;
 	auto box = geo.CreateBox(1.0f, 1.0f, 1.0f, 3);
 	auto grid = geo.CreateGrid(10.0f, 10.0f, 2, 2);
-	auto sphere = geo.CreateSphere(0.5f, 20, 20); // environment map
+	auto sphere = geo.CreateSphere(1.0f, 20, 20); // environment map
 	auto sphere2 = geo.CreateSphere(0.5f, 10, 10); // debug to track position of light
 	auto dbgquad = geo.CreateQuad(0.0f, 0.0f, 1.0f, 1.0f, 0.0f); // we just give ndc coordinates directly(e.g. identity view/world). they live in [-1, 1]^2
 
@@ -1615,9 +1575,9 @@ void TestApp::BuildStaticGeometry()
 
 	// Let's load the static canyon geometry
 	auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
-	auto success = m->LoadOBJ(mProjectPath + L"Models//Level6.obj");
+	auto success = m->LoadOBJ(mProjectPath + L"Models//" + std::wstring(mLevel.begin(), mLevel.end()) + L".obj");
 	assert(success >= 0);
-	m->Name = "Level6";
+	m->Name = mLevel;
 	mGeometries[m->Name] = std::move(m);
 }
 
@@ -1756,8 +1716,21 @@ void TestApp::BuildMaterials()
 	mMaterials[sky->Name] = std::move(sky);
 }
 
-void TestApp::UpdateInstanceBuffer(UINT renderItemId)
+void TestApp::UpdateInstanceBuffer(const Timer& t)
 {
+	// Well well well. Hvae to update env map manually.. TODO
+	if (mSkydome->NumFramesDirty)
+	{
+		auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[mSkydome->Id()];
+
+		XMMATRIX world = XMLoadFloat4x4(&mSkydome->Instances[0].World);
+
+		InstanceData data;
+		XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
+		data.MatIndex = mSkydome->Instances[0].MatIndex;
+
+		currInstanceBuffer->CopyData(0, data);
+	}
 	for (auto& ri : mRenderItems)
 	{
 		auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[ri->Id()];
@@ -1770,7 +1743,7 @@ void TestApp::UpdateInstanceBuffer(UINT renderItemId)
 			XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
 			data.MatIndex = ri->Instances[i].MatIndex;
 
-			// Write the instance data to structured buffer for the visible objects.
+			// Write the instance data to structured buffer
 			currInstanceBuffer->CopyData(i, data);
 		}
 	}

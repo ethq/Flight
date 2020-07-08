@@ -1,18 +1,5 @@
 #include "Lighting.hlsl"
 
-Texture2D    gDiffuseMap         : register(t0);
-TextureCube  gCubeMap            : register(t1);
-Texture2D    gShadowMap[max(NUM_SPOT_LIGHTS + NUM_DIR_LIGHTS, 1)]       : register(t2);
-TextureCube  gPointShadowMap[max(NUM_POINT_LIGHTS, 1)]  : register(t0, space1);
-
-SamplerState gsamPointWrap        : register(s0);
-SamplerState gsamPointClamp       : register(s1);
-SamplerState gsamLinearWrap       : register(s2);
-SamplerState gsamLinearClamp      : register(s3);
-SamplerState gsamAnisotropicWrap  : register(s4);
-SamplerState gsamAnisotropicClamp : register(s5);
-SamplerComparisonState gsamShadow : register(s6);
-
 struct InstanceData
 {
     float4x4 World;
@@ -36,10 +23,25 @@ struct MaterialData
 };
 
 
+TextureCube  gCubeMap            : register(t0);
+Texture2D    gShadowMap[max(NUM_SPOT_LIGHTS + NUM_DIR_LIGHTS, 1)]       : register(t1);
+TextureCube  gPointShadowMap[max(NUM_POINT_LIGHTS, 1)]  : register(t0, space1);
+
 StructuredBuffer<InstanceData> gInstanceData : register(t0, space2);
 StructuredBuffer<MaterialData> gMaterialData : register(t1, space2);
 
-cbuffer cbPass : register(b1)
+Texture2D    gDiffuseMap[]         : register(t0, space3);
+
+SamplerState gsamPointWrap        : register(s0);
+SamplerState gsamPointClamp       : register(s1);
+SamplerState gsamLinearWrap       : register(s2);
+SamplerState gsamLinearClamp      : register(s3);
+SamplerState gsamAnisotropicWrap  : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
+SamplerComparisonState gsamShadow : register(s6);
+
+
+cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;

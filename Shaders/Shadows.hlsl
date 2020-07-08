@@ -11,21 +11,26 @@ struct VertexOut
 {
 	float4 PosH    : SV_POSITION;
 	float2 TexC    : TEXCOORD;
+
+	nointerpolation uint MatIndex : MATINDEX;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
 	VertexOut vout = (VertexOut)0.0f;
+
+	InstanceData idata = gInstanceData[instanceID];
+	float4x4 world = idata.World;
 	
     // Transform to world space
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    float4 posW = mul(float4(vin.PosL, 1.0f), world);
 
     // Transform to homogeneous clip space
 	vout.PosH = mul(posW, gViewProj); // Persp divide done by hadrware
-	
+	vout.MatIndex = idata.MaterialIndex;
 	// Output vertex attributes for interpolation across triangle.
-	float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
-	vout.TexC = mul(texC, gMatTransform).xy;
+	//float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
+	//vout.TexC = mul(texC, gMatTransform).xy;
 	
     return vout;
 }

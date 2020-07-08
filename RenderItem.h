@@ -47,5 +47,5 @@ protected:
 	int mId = -1;
 };
 
-int RenderItem::nextId = 0;
+
 

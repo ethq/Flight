@@ -51,5 +51,5 @@ float4 PS(VertexOut pin) : SV_Target
 
 	//float ee = (2 - xg - yg) * e;
 	
-	return c * e;
+	return c;
 }

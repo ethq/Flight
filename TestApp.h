@@ -40,7 +40,7 @@ private:
 	virtual void OnKeyUp(WPARAM, LPARAM) override;
 
 	void UpdateGeometry(const Timer&);
-	void UpdateInstanceBuffer(UINT);
+	void UpdateInstanceBuffer(const Timer&);
 	void UpdateMaterialBuffer(const Timer&);
 	void UpdateMainPassCB(const Timer&);
 	void UpdateShadowPassCB(size_t lightIndex, UINT passIndex);
@@ -81,8 +81,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> mBlurRootSignature = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> mSobelRootSignature = nullptr;
+
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mCbvDescHeap = nullptr;
 
+	// Looks like a relic to me; delete. 
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvDescHeap = nullptr;
 
 	std::unordered_map<std::string, std::unique_ptr<Mesh>> mGeometries;
@@ -92,6 +94,8 @@ private:
 	std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> mPSOs;
 
 	DirectX::BoundingSphere mSceneBoundS;
+
+	std::string mLevel = "Level5";
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mEnvironmentMapSrv;
