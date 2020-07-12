@@ -278,6 +278,8 @@ void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
 
 void TestApp::UpdateGeometry(const Timer& t)
 {
+	return;
+
 	if (mDbgFlag)
 		return;
 
@@ -402,6 +404,12 @@ void TestApp::Draw(const Timer& t)
 	mCommandList->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &DepthStencilView());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueItems);
+
+	if (mDebugBoundingBoxes.size())
+	{
+		mCommandList->SetPipelineState(mPSOs["opaque_wireframe"].Get());
+		DrawRenderItems(mCommandList.Get(), mDebugBoundingBoxes);
+	}
 
 	mCommandList->SetPipelineState(mPSOs["envMap"].Get());
 	// Temporary hack! TODO
@@ -1403,19 +1411,6 @@ void TestApp::BuildRenderItems()
 	//
 	//mRenderItems.push_back(std::move(ls));
 
-	//auto box = std::make_unique<RenderItem>(mNumFrameResources);
-	//XMStoreFloat4x4(&box->World, XMMatrixScaling(2.0f, 2.0f, 2.0f));// *XMMatrixTranslation(0.0f, 0.5f, 0.0f));
-	//XMStoreFloat4x4(&box->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-	//box->cbObjectIndex = cbObjectIndex++;
-	//box->Mat = mMaterials["stone0"].get();
-	//box->Geo = mGeometries["shapes"].get();
-	//box->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	//box->IndexCount = box->Geo->DrawArgs["box"].IndexCount;
-	//box->StartIndexLocation = box->Geo->DrawArgs["box"].StartIndexLocation;
-	//box->BaseVertexLocation = box->Geo->DrawArgs["box"].BaseVertexLocation;
-
-	//mRenderItems.push_back(std::move(box));
-
 	//auto grid = std::make_unique<RenderItem>(mNumFrameResources);
 	//XMStoreFloat4x4(&grid->World, XMMatrixScaling(10.0f, 10.0f, 10.0f));
 	//XMStoreFloat4x4(&grid->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
@@ -1428,6 +1423,13 @@ void TestApp::BuildRenderItems()
 	//grid->BaseVertexLocation = grid->Geo->DrawArgs["grid"].BaseVertexLocation;
 
 	//mRenderItems.push_back(std::move(grid));
+
+	auto box = std::make_unique<RenderItem>(mNumFrameResources);
+	box->Geo = mGeometries["shapes"].get();
+	box->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	box->IndexCount = box->Geo->DrawArgs["debugBoxes"].IndexCount;
+	box->StartIndexLocation = box->Geo->DrawArgs["debugBoxes"].StartIndexLocation;
+	box->BaseVertexLocation = box->Geo->DrawArgs["debugBoxes"].BaseVertexLocation;
 
 	int j = 0;
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
@@ -1447,17 +1449,33 @@ void TestApp::BuildRenderItems()
 		ri->Name = g.first;
 		ri->BoundsB = g.second.Bounds;
 
+		// Add debug box
+		// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+		float scaleX = 2.0f * ri->BoundsB.Extents.x;
+		float scaleY = 2.0f * ri->BoundsB.Extents.y;
+		float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+		XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+		XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+
+		// Then apply world matrix for render item
+		XMStoreFloat4x4(&idata.World, bsc*btr);
+		box->Instances.push_back(idata);
+
 		mRenderItems.push_back(std::move(ri));
 	}
-
+	mDebugBoundingBoxes.push_back(box.get());
+	
 	for (auto& e : mRenderItems)
 		mOpaqueItems.push_back(e.get());
+
+	// Let's not add the debug boxes to the opaque items
+	mRenderItems.push_back(std::move(box));
 }
 
 void TestApp::BuildStaticGeometry()
 {
 	GeometryGenerator geo;
-	auto box = geo.CreateBox(1.0f, 1.0f, 1.0f, 3);
+	auto box = geo.CreateBox(1.0f, 1.0f, 1.0f, 0);
 	auto grid = geo.CreateGrid(10.0f, 10.0f, 2, 2);
 	auto sphere = geo.CreateSphere(1.0f, 20, 20); // environment map
 	auto sphere2 = geo.CreateSphere(0.5f, 10, 10); // debug to track position of light
@@ -1565,7 +1583,7 @@ void TestApp::BuildStaticGeometry()
 	geomesh->IndexFormat = DXGI_FORMAT_R16_UINT;
 	geomesh->IndexBufferByteSize = ibByteSize;
 
-	geomesh->DrawArgs["box"] = boxSubmesh;
+	geomesh->DrawArgs["debugBoxes"] = boxSubmesh;
 	geomesh->DrawArgs["grid"] = gridSubmesh;
 	geomesh->DrawArgs["sphere"] = sphereSubmesh;
 	geomesh->DrawArgs["sphere2"] = sphere2Submesh;

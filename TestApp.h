@@ -73,6 +73,7 @@ private:
 	int gIdx = 0;
 	std::vector<std::unique_ptr<RenderItem>> mRenderItems;
 	std::vector<RenderItem*> mOpaqueItems;
+	std::vector<RenderItem*> mDebugBoundingBoxes;
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
 	UINT mNumFrameResources = 3;
 	FrameResource* mCurrFrameResource = nullptr;

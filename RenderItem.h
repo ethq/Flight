@@ -19,6 +19,7 @@ struct RenderItem
 	RenderItem(const RenderItem&) = delete;
 	RenderItem& operator=(const RenderItem&) = delete;
 
+	// Given in local space
 	DirectX::BoundingBox BoundsB{};
 
 	std::string Name;
