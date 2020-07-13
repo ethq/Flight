@@ -27,7 +27,7 @@ private:
 	virtual void OnResize() override;
 	virtual void Update(const Timer& t) override;
 	virtual void Draw(const Timer& t) override;
-	void DrawRenderItems(ID3D12GraphicsCommandList*, const std::vector<RenderItem*>&);
+	void DrawRenderItems(ID3D12GraphicsCommandList*, const std::vector<std::shared_ptr<RenderItem>>&);
 	void DrawFullscreenQuad(ID3D12GraphicsCommandList*);
 	void DrawShadowMaps();
 
@@ -39,8 +39,10 @@ private:
 	virtual void OnKeyDown(WPARAM, LPARAM) override;
 	virtual void OnKeyUp(WPARAM, LPARAM) override;
 
+	void ClearInstances(std::shared_ptr<RenderItem>);
+
 	void UpdateGeometry(const Timer&);
-	void UpdateInstanceBuffer(const Timer&);
+	void UpdateInstanceBuffer(const Timer&, const std::vector<RENDER_ITEM_TYPE>&);
 	void UpdateMaterialBuffer(const Timer&);
 	void UpdateMainPassCB(const Timer&);
 	void UpdateShadowPassCB(size_t lightIndex, UINT passIndex);
@@ -71,9 +73,7 @@ private:
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 private:
 	int gIdx = 0;
-	std::vector<std::unique_ptr<RenderItem>> mRenderItems;
-	std::vector<RenderItem*> mOpaqueItems;
-	std::vector<RenderItem*> mDebugBoundingBoxes;
+	std::map<RENDER_ITEM_TYPE, std::vector<std::shared_ptr<RenderItem>>> mRenderItems;
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
 	UINT mNumFrameResources = 3;
 	FrameResource* mCurrFrameResource = nullptr;
@@ -101,9 +101,6 @@ private:
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mEnvironmentMapSrv;
 
-	std::unique_ptr<RenderItem> mSkydome;
-	std::unique_ptr<RenderItem> mDbgQuad;
-
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
 	std::vector<std::shared_ptr<LightPovData>> mLights;
@@ -129,8 +126,34 @@ private:
 
 	Camera mCamera;
 
+	// Settings
 	std::wstring mProjectPath;
 	bool mDbgFlag = false;
+	bool mDebugBoundingBoxesEnabled = true;
+
+	const std::vector<RENDER_ITEM_TYPE> mPickableRenderItems = {
+		RENDER_ITEM_TYPE::OPAQUE_DYNAMIC,
+		RENDER_ITEM_TYPE::OPAQUE_STATIC,
+		RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC,
+		RENDER_ITEM_TYPE::WIREFRAME_STATIC,
+		RENDER_ITEM_TYPE::TRANSPARENT_DYNAMIC,
+		RENDER_ITEM_TYPE::TRANSPARENT_STATIC
+	};
+
+	const std::vector<RENDER_ITEM_TYPE> mDynamicRenderItems = {
+		RENDER_ITEM_TYPE::OPAQUE_DYNAMIC,
+		RENDER_ITEM_TYPE::TRANSPARENT_DYNAMIC,
+		RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC,
+		RENDER_ITEM_TYPE::DEBUG_BOXES
+	};
+
+	const std::vector<RENDER_ITEM_TYPE> mStaticRenderItems = {
+		RENDER_ITEM_TYPE::ENVIRONMENT_MAP,
+		RENDER_ITEM_TYPE::OPAQUE_STATIC,
+		RENDER_ITEM_TYPE::TRANSPARENT_STATIC,
+		RENDER_ITEM_TYPE::WIREFRAME_STATIC,
+		RENDER_ITEM_TYPE::DEBUG_QUAD_SHADOWMAP
+	};
 };
 
 // Entry point

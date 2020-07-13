@@ -23,8 +23,9 @@ void TestApp::Update(const Timer& t)
 		CloseHandle(eventHandle);
 	}
 
+
 	UpdateGeometry(t);
-	UpdateInstanceBuffer(t);
+	UpdateInstanceBuffer(t, mDynamicRenderItems);
 	UpdateMaterialBuffer(t);
 	UpdateLights(t);
 	//UpdateShadowPassCB(t); // called in drawshadowmap
@@ -73,61 +74,64 @@ void TestApp::Pick(float x, float y)
 	auto det = XMMatrixDeterminant(mPlane.View());
 	auto invView = XMMatrixInverse(&det, mPlane.View());
 
-	for (auto& ri : mRenderItems)
+	for (auto category : mPickableRenderItems)
 	{
-		auto world = XMLoadFloat4x4(&ri->Instances[0].World);
-		det = XMMatrixDeterminant(world);
-		auto invWorld = XMMatrixInverse(&det, world);
-
-		auto toLocal = XMMatrixMultiply(invView, invWorld); // invView* invWorld;
-
-		// ray to local space
-		auto locRayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
-		auto locRayDir = XMVector3TransformNormal(rayDir, toLocal);
-		locRayDir = XMVector3Normalize(locRayDir);
-		
-		// Does our ray intersect the BB?
-		
-		// ray parameter at closest collision point
-		float tmin = 0.0f;
-		if (ri->BoundsB.Intersects(locRayOrigin, locRayDir, tmin))
+		for (auto& ri : mRenderItems[category])
 		{
-			::OutputDebugStringA(ri->Name.c_str());
+			auto world = XMLoadFloat4x4(&ri->Instance(0).World);
+			det = XMMatrixDeterminant(world);
+			auto invWorld = XMMatrixInverse(&det, world);
 
-			// TODO make this optional;
+			auto toLocal = XMMatrixMultiply(invView, invWorld); // invView* invWorld;
 
-			// We hit the bounding box, but we may not have hit the object itself. 
-			// To find out we do ray-tri intersections
+			// ray to local space
+			auto locRayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+			auto locRayDir = XMVector3TransformNormal(rayDir, toLocal);
+			locRayDir = XMVector3Normalize(locRayDir);
 
-			// The submesh of a given renderitem belongs to a mesh, which stores copies of v/ibuffers
-			auto vertices = (Vertex*)ri->Geo->VertexBufferCPU->GetBufferPointer();
-			auto indices = (std::uint16_t*)ri->Geo->IndexBufferCPU->GetBufferPointer();
+			// Does our ray intersect the BB?
 
-			UINT triCount = ri->IndexCount / 3;
-			
-			// Keep track of which triangle is the closest; for now we iterate over all tris in the mesh
-			tmin = Math::Infty;
-			for (UINT i = 0; i < triCount; ++i)
+			// ray parameter at closest collision point
+			float tmin = 0.0f;
+			if (ri->BoundsB.Intersects(locRayOrigin, locRayDir, tmin))
 			{
-				auto i0 = indices[ri->StartIndexLocation + i * 3 + 0];
-				auto i1 = indices[ri->StartIndexLocation + i * 3 + 1];
-				auto i2 = indices[ri->StartIndexLocation + i * 3 + 2];
+				::OutputDebugStringA(ri->Name.c_str());
 
-				auto v0 = XMLoadFloat3(&vertices[i0].Pos);
-				auto v1 = XMLoadFloat3(&vertices[i1].Pos);
-				auto v2 = XMLoadFloat3(&vertices[i2].Pos);
+				// TODO make this optional;
 
-				float t = 0.0f;
+				// We hit the bounding box, but we may not have hit the object itself. 
+				// To find out we do ray-tri intersections
 
-				if (TriangleTests::Intersects(locRayOrigin, locRayDir, v0, v1, v2, t))
+				// The submesh of a given renderitem belongs to a mesh, which stores copies of v/ibuffers
+				auto vertices = (Vertex*)ri->Geo->VertexBufferCPU->GetBufferPointer();
+				auto indices = (std::uint16_t*)ri->Geo->IndexBufferCPU->GetBufferPointer();
+
+				UINT triCount = ri->IndexCount / 3;
+
+				// Keep track of which triangle is the closest; for now we iterate over all tris in the mesh
+				tmin = Math::Infty;
+				for (UINT i = 0; i < triCount; ++i)
 				{
-					if (t < tmin)
-						tmin = t;
+					auto i0 = indices[ri->StartIndexLocation + i * 3 + 0];
+					auto i1 = indices[ri->StartIndexLocation + i * 3 + 1];
+					auto i2 = indices[ri->StartIndexLocation + i * 3 + 2];
+
+					auto v0 = XMLoadFloat3(&vertices[i0].Pos);
+					auto v1 = XMLoadFloat3(&vertices[i1].Pos);
+					auto v2 = XMLoadFloat3(&vertices[i2].Pos);
+
+					float t = 0.0f;
+
+					if (TriangleTests::Intersects(locRayOrigin, locRayDir, v0, v1, v2, t))
+					{
+						if (t < tmin)
+							tmin = t;
+					}
 				}
+
+				if (tmin != Math::Infty)
+					::OutputDebugStringA("Actual hit");
 			}
-			
-			if (tmin != Math::Infty)
-				::OutputDebugStringA("Actual hit");
 		}
 	}
 }
@@ -276,19 +280,38 @@ void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
 	}
 }
 
+// Clears instances from a RenderItem. Since RenderItems are coupled to FrameResources, we need to clear the upload buffers there as well;
+// So, for now, it is not enough to have a single member function to clear in RenderItem
+void TestApp::ClearInstances(std::shared_ptr<RenderItem> ri)
+{
+	// Clear out upload buffers
+	InstanceData idata;
+	ZeroMemory(&idata, sizeof(InstanceData));
+
+	for (auto i = 0; i < ri->InstanceCount(); ++i)
+	{
+		for (auto j = 0; j < mNumFrameResources; ++j)
+			mFrameResources[j]->InstanceBuffers[ri->Id()]->CopyData(i, idata);
+	}
+
+	// Clear copy inside render item
+	ri->ClearInstances();
+}
+
+// Todo: test ClearInstances - seems to work well, but yknow.
 void TestApp::UpdateGeometry(const Timer& t)
 {
-	return;
+	auto dbgBoxes = mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES][0];
+	ClearInstances(dbgBoxes);
 
-	if (mDbgFlag)
-		return;
-
-	for (auto& ri : mRenderItems)
+	for (auto& ri : mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC])
 	{
+		// Cube?
 		auto iscube = (ri->Name.substr(0, 6) == "Cube.0");
 		if (!iscube)
 			continue;
 
+		// Move cube
 		auto rotup = 2*(rand() % 2) - 1;
 
 		// rotate in local space
@@ -297,8 +320,21 @@ void TestApp::UpdateGeometry(const Timer& t)
 		auto roty = XMMatrixRotationY(t.DeltaTime() * localRate);
 		auto rotz = XMMatrixRotationZ(t.DeltaTime() * localRate);
 		
-		XMMATRIX pos = XMLoadFloat4x4(&ri->Instances[0].World);
-		XMStoreFloat4x4(&ri->Instances[0].World, rotx * roty * pos);
+		XMMATRIX pos = XMLoadFloat4x4(&ri->Instance(0).World);
+		XMMATRIX npos = rotx * roty * pos;
+		XMStoreFloat4x4(&ri->Instance(0).World, npos);
+
+		// Update debug bounding box
+		InstanceData idata;
+		float scaleX = 2.0f * ri->BoundsB.Extents.x;
+		float scaleY = 2.0f * ri->BoundsB.Extents.y;
+		float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+		XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+		XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+
+		// Then apply world matrix for render item
+		XMStoreFloat4x4(&idata.World, bsc * btr * npos);
+		dbgBoxes->AddInstance(idata);
 
 		ri->NumFramesDirty = mNumFrameResources;
 	}
@@ -353,7 +389,11 @@ void TestApp::Draw(const Timer& t)
 	mCommandList->SetGraphicsRootDescriptorTable(5, mNullSrv);
 	mCommandList->SetGraphicsRootDescriptorTable(6, mNullSrv);
 
-	DrawRenderItems(mCommandList.Get(), mOpaqueItems);
+	// TODO: put these in an aggregate list
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_STATIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_STATIC]);
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mOffscreenRT->Resource(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
@@ -403,19 +443,19 @@ void TestApp::Draw(const Timer& t)
 
 	mCommandList->OMSetRenderTargets(1, &mOffscreenRT->Rtv(), true, &DepthStencilView());
 
-	DrawRenderItems(mCommandList.Get(), mOpaqueItems);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_STATIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC]);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_STATIC]);
 
-	if (mDebugBoundingBoxes.size())
+	if (mDebugBoundingBoxesEnabled)
 	{
 		mCommandList->SetPipelineState(mPSOs["opaque_wireframe"].Get());
-		DrawRenderItems(mCommandList.Get(), mDebugBoundingBoxes);
+		DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES]);
 	}
 
 	mCommandList->SetPipelineState(mPSOs["envMap"].Get());
-	// Temporary hack! TODO
-	std::vector<RenderItem*> skydomes;
-	skydomes.push_back(mSkydome.get());
-	DrawRenderItems(mCommandList.Get(), skydomes);
+	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::ENVIRONMENT_MAP]);
 
 	//// the PSO/shader here renders out the first flat shadowmap
 	//mCommandList->SetPipelineState(mPSOs["dbgShadow"].Get());
@@ -474,7 +514,7 @@ void TestApp::DrawFullscreenQuad(ID3D12GraphicsCommandList* cmdList)
 	cmdList->DrawInstanced(6, 1, 0, 0);
 }
 
-void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
 {
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
@@ -488,7 +528,7 @@ void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 		auto ib = mCurrFrameResource->InstanceBuffers[ri->Id()]->Resource();
 		cmdList->SetGraphicsRootShaderResourceView(1, ib->GetGPUVirtualAddress());
 
-		cmdList->DrawIndexedInstanced(ri->IndexCount, (UINT)ri->Instances.size(), ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		cmdList->DrawIndexedInstanced(ri->IndexCount, (UINT)ri->InstanceCount(), ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
 }
 
@@ -595,7 +635,10 @@ void TestApp::DrawShadowMaps()
 
 			mCommandList->SetPipelineState(mPSOs["shadowOpaque"].Get());
 
-			DrawRenderItems(mCommandList.Get(), mOpaqueItems);
+			DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC]);
+			DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::OPAQUE_STATIC]);
+			DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC]);
+			DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_STATIC]);
 
 			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(sm->Resource(),
 				D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
@@ -782,26 +825,17 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 // Render items are guaranteed to be constructed at this point
 void TestApp::BuildFrameResources()
 {
-	// Things are starting to get ready for a refactor:
-	// The magic +1 here is due to the sky sphere used for env mapping
-	// Another magic +1 for the debug quad
-
 	// one for doing regular passes, six for doing shadow passes. 
 	// in a previous iteration of the holy code, these were getting overwritten and giving very strange rendering results
 	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); 
 
 	// each renderitem must have an uploadbuffer of instance data
 	std::map<UINT, UINT> rItemInstances;
-	for (auto& ri : mRenderItems)
+	for (auto& categ : mRenderItems)
 	{
-		rItemInstances[ri->Id()] = ri->MaxInstances;
+		for (auto& ri: categ.second)
+			rItemInstances[ri->Id()] = ri->MaxInstances;
 	}
-
-	// Some render items are constructed outside of regular initialization; for now, they are:
-	// - Environment map
-	// - Debug quad for shadows
-	rItemInstances[mSkydome->Id()] = mSkydome->MaxInstances;
-	rItemInstances[mDbgQuad->Id()] = mDbgQuad->MaxInstances;
 
 	for (UINT i = 0; i < mNumFrameResources; ++i)
 	{
@@ -1088,7 +1122,11 @@ bool TestApp::Initialize()
 	BuildDescriptorHeaps();
 	BuildDescriptors();
 	BuildPSOs();
+	
 
+	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
+	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+	UpdateInstanceBuffer(mTimer, mStaticRenderItems);
 
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdLists[] = { mCommandList.Get() };
@@ -1374,29 +1412,33 @@ void TestApp::BuildRootSignature()
 
 void TestApp::BuildRenderItems()
 {
-	mSkydome = std::make_unique<RenderItem>(mNumFrameResources);
+	auto skydome = std::make_shared<RenderItem>(mNumFrameResources);
 
 	InstanceData idata;
 	XMStoreFloat4x4(&idata.World, XMMatrixScaling(10000.0f, 10000.0f, 10000.0f));
 	// TODO SET MATERIAL INDEX
-	mSkydome->Instances.push_back(idata);
+	skydome->AddInstance(idata);
 
-	mSkydome->Geo = mGeometries["shapes"].get();
-	mSkydome->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	mSkydome->IndexCount = mSkydome->Geo->DrawArgs["sphere"].IndexCount;
-	mSkydome->StartIndexLocation = mSkydome->Geo->DrawArgs["sphere"].StartIndexLocation;
-	mSkydome->BaseVertexLocation = mSkydome->Geo->DrawArgs["sphere"].BaseVertexLocation;
+	skydome->Geo = mGeometries["shapes"].get();
+	skydome->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	skydome->IndexCount = skydome->Geo->DrawArgs["sphere"].IndexCount;
+	skydome->StartIndexLocation = skydome->Geo->DrawArgs["sphere"].StartIndexLocation;
+	skydome->BaseVertexLocation = skydome->Geo->DrawArgs["sphere"].BaseVertexLocation;
+
+	mRenderItems[RENDER_ITEM_TYPE::ENVIRONMENT_MAP].push_back(std::move(skydome));
 	
-	mDbgQuad = std::make_unique<RenderItem>(mNumFrameResources);
+	auto dbgQuad = std::make_shared<RenderItem>(mNumFrameResources);
 	idata.World = Math::Identity4x4();
 	//TODO SET MATERIAL INDEX
-	mDbgQuad->Instances.push_back(idata);
+	dbgQuad->AddInstance(idata);
 
-	mDbgQuad->Geo = mGeometries["shapes"].get();
-	mDbgQuad->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	mDbgQuad->IndexCount = mDbgQuad->Geo->DrawArgs["dbgQuad"].IndexCount;
-	mDbgQuad->StartIndexLocation = mDbgQuad->Geo->DrawArgs["dbgQuad"].StartIndexLocation;
-	mDbgQuad->BaseVertexLocation = mDbgQuad->Geo->DrawArgs["dbgQuad"].BaseVertexLocation;
+	dbgQuad->Geo = mGeometries["shapes"].get();
+	dbgQuad->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	dbgQuad->IndexCount = dbgQuad->Geo->DrawArgs["dbgQuad"].IndexCount;
+	dbgQuad->StartIndexLocation = dbgQuad->Geo->DrawArgs["dbgQuad"].StartIndexLocation;
+	dbgQuad->BaseVertexLocation = dbgQuad->Geo->DrawArgs["dbgQuad"].BaseVertexLocation;
+
+	mRenderItems[RENDER_ITEM_TYPE::DEBUG_QUAD_SHADOWMAP].push_back(std::move(dbgQuad));
 
 	//auto ls = std::make_unique<RenderItem>(mNumFrameResources);
 	//auto pos = XMFLOAT3(10.0f, 0.0f, 10.0f);
@@ -1424,7 +1466,7 @@ void TestApp::BuildRenderItems()
 
 	//mRenderItems.push_back(std::move(grid));
 
-	auto box = std::make_unique<RenderItem>(mNumFrameResources);
+	auto box = std::make_shared<RenderItem>(mNumFrameResources, 100);
 	box->Geo = mGeometries["shapes"].get();
 	box->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	box->IndexCount = box->Geo->DrawArgs["debugBoxes"].IndexCount;
@@ -1435,11 +1477,11 @@ void TestApp::BuildRenderItems()
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
 	for (auto& g : mGeometries[mLevel.c_str()]->DrawArgs)
 	{
-		auto ri = std::make_unique<RenderItem>(mNumFrameResources);
+		auto ri = std::make_shared<RenderItem>(mNumFrameResources);
 
 		idata.World = Math::Identity4x4();
 		// TODO SET MATINDEX
-		ri->Instances.push_back(idata);
+		ri->AddInstance(idata);
 		
 		ri->Geo = mGeometries[mLevel.c_str()].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1459,17 +1501,11 @@ void TestApp::BuildRenderItems()
 
 		// Then apply world matrix for render item
 		XMStoreFloat4x4(&idata.World, bsc*btr);
-		box->Instances.push_back(idata);
+		box->AddInstance(idata);
 
-		mRenderItems.push_back(std::move(ri));
+		mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(std::move(ri));
 	}
-	mDebugBoundingBoxes.push_back(box.get());
-	
-	for (auto& e : mRenderItems)
-		mOpaqueItems.push_back(e.get());
-
-	// Let's not add the debug boxes to the opaque items
-	mRenderItems.push_back(std::move(box));
+	mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES].push_back(std::move(box));
 }
 
 void TestApp::BuildStaticGeometry()
@@ -1734,35 +1770,25 @@ void TestApp::BuildMaterials()
 	mMaterials[sky->Name] = std::move(sky);
 }
 
-void TestApp::UpdateInstanceBuffer(const Timer& t)
+void TestApp::UpdateInstanceBuffer(const Timer& t, const std::vector<RENDER_ITEM_TYPE>& categories)
 {
-	// Well well well. Hvae to update env map manually.. TODO
-	if (mSkydome->NumFramesDirty)
+	for (auto category : categories)
 	{
-		auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[mSkydome->Id()];
-
-		XMMATRIX world = XMLoadFloat4x4(&mSkydome->Instances[0].World);
-
-		InstanceData data;
-		XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
-		data.MatIndex = mSkydome->Instances[0].MatIndex;
-
-		currInstanceBuffer->CopyData(0, data);
-	}
-	for (auto& ri : mRenderItems)
-	{
-		auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[ri->Id()];
-
-		for (size_t i = 0; i < ri->Instances.size(); ++i)
+		for (auto& ri : mRenderItems[category])
 		{
-			XMMATRIX world = XMLoadFloat4x4(&ri->Instances[i].World);
+			auto& currInstanceBuffer = mCurrFrameResource->InstanceBuffers[ri->Id()];
 
-			InstanceData data;
-			XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
-			data.MatIndex = ri->Instances[i].MatIndex;
+			for (size_t i = 0; i < ri->InstanceCount(); ++i)
+			{
+				XMMATRIX world = XMLoadFloat4x4(&ri->Instance(i).World);
 
-			// Write the instance data to structured buffer
-			currInstanceBuffer->CopyData(i, data);
+				InstanceData data;
+				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
+				data.MatIndex = ri->Instance(i).MatIndex;
+
+				// Write the instance data to structured buffer
+				currInstanceBuffer->CopyData(i, data);
+			}
 		}
 	}
 }
@@ -1874,6 +1900,7 @@ void TestApp::BuildDescriptorHeaps()
 	for (auto& l : mLights)
 		shadowDescCount += l->Shadowmap()->DescriptorCount();
 
+	// Todo: recalculate; we no longer use obj consts
 	// +1 for offscreen render target
 	// +1*3 for dbg quad
 	// +1 for null srv (which we bind during shadowmapping - ultimately to avoid swapping root sigs)

@@ -7,6 +7,23 @@
 
 // Note; _never_ use using namespace X in a header, since it gets "imported" as well
 
+enum class RENDER_ITEM_TYPE
+{
+	// General render items
+	OPAQUE_DYNAMIC = 1,
+	TRANSPARENT_DYNAMIC,
+	WIREFRAME_DYNAMIC,
+
+	OPAQUE_STATIC,
+	TRANSPARENT_STATIC,
+	WIREFRAME_STATIC,
+
+	// Unique render items
+	DEBUG_BOXES,
+	ENVIRONMENT_MAP,
+	DEBUG_QUAD_SHADOWMAP
+};
+
 /*
 Just a small helper class to store info needed to draw a single item
 */
@@ -30,9 +47,7 @@ struct RenderItem
 
 	Mesh* Geo = nullptr;
 	
-	// Currently not used
-	UINT MaxInstances;
-	std::vector<InstanceData> Instances;
+	const UINT MaxInstances;
 
 	D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -41,11 +56,36 @@ struct RenderItem
 	UINT StartIndexLocation = 0;
 	int  BaseVertexLocation = 0;
 
+public:
 	int Id() const { return mId; }
+	
+	InstanceData& Instance(size_t idx) { return mInstances[idx]; }
+	size_t InstanceCount() { return mInstances.size(); }
 
-protected:
+	// Attempt to add an instance. If the item already has MaxInstances instances, -1 is returned.
+	// This is because we need to reserve memory in the associated upload buffer.
+	int AddInstance(InstanceData& data)
+	{
+		if (mInstances.size() >= MaxInstances)
+		{
+			::OutputDebugStringA("Attempting to add instance beyond capacity in RenderItem::AddInstance\n");
+			return -1;
+		}
+
+		mInstances.push_back(data);
+		return 1;
+	}
+
+	void ClearInstances()
+	{
+		mInstances.clear();
+	}
+
+private:
 	static int nextId;
+
 	int mId = -1;
+	std::vector<InstanceData> mInstances;
 };
 
 
