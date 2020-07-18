@@ -61,6 +61,6 @@ public:
 
 private:
     std::shared_ptr<ShadowMap> mShadowMap;
-    const UINT SHADOW_MAP_WIDTH = 1024*2;
-    const UINT SHADOW_MAP_HEIGHT = 1024*2;
+    const UINT SHADOW_MAP_WIDTH = 1024*4;
+    const UINT SHADOW_MAP_HEIGHT = 1024*4;
 };

@@ -11,6 +11,7 @@
 #include "Mesh.h"
 #include "Light.h"
 #include "ShadowMap.h"
+#include "reactphysics3d.h"
 
 #include "Camera.h" // temporary!
 
@@ -96,7 +97,7 @@ private:
 
 	DirectX::BoundingSphere mSceneBoundS;
 
-	std::string mLevel = "Level5";
+	std::string mLevel = "Level_Airstrip";
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mEnvironmentMapSrv;
@@ -154,6 +155,9 @@ private:
 		RENDER_ITEM_TYPE::WIREFRAME_STATIC,
 		RENDER_ITEM_TYPE::DEBUG_QUAD_SHADOWMAP
 	};
+
+	// Member variables belonging to the physics 
+	
 };
 
 // Entry point
@@ -186,9 +190,7 @@ void TestApp::OnResize()
 	D3Base::OnResize();
 
 	// The window resized, so update the aspect ratio and recompute the projection matrix.
-	DirectX::XMMATRIX P = DirectX::XMMatrixPerspectiveFovLH(0.25f * Math::Pi, AspectRatio(), 1.0f, 1000.0f);
+	DirectX::XMMATRIX P = DirectX::XMMatrixPerspectiveFovLH(0.25f * Math::Pi, AspectRatio(), 1.0f, 3000.0f);
 	DirectX::XMStoreFloat4x4(&mProj, P);
-
-	mCamera.SetLens(0.25f * Math::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 

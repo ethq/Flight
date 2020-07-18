@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Utilities.h"
-#include "Math.h"
 #include "UploadBuffer.h"
 #include "Light.h"
 #include <map>

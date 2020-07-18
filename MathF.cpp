@@ -1,4 +1,4 @@
-#include "Math.h"
+#include "MathF.h"
 
 const float Math::Infty = FLT_MAX;
 const float Math::Pi = 3.1415926535f;

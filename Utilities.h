@@ -1,5 +1,7 @@
 #pragma once
 
+#define NOMINMAX
+
 #include <windows.h>
 #include <wrl.h>
 #include <dxgi1_4.h>
@@ -21,7 +23,7 @@
 #include <cassert>
 #include "d3dx12.h"
 #include "DDSTextureLoader.h"
-#include "Math.h"
+#include "MathF.h"
 
 inline void d3dSetDebugName(IDXGIObject* obj, const char* name)
 {

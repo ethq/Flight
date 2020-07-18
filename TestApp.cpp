@@ -301,6 +301,8 @@ void TestApp::ClearInstances(std::shared_ptr<RenderItem> ri)
 // Todo: test ClearInstances - seems to work well, but yknow.
 void TestApp::UpdateGeometry(const Timer& t)
 {
+	return;
+
 	auto dbgBoxes = mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES][0];
 	ClearInstances(dbgBoxes);
 
@@ -448,11 +450,11 @@ void TestApp::Draw(const Timer& t)
 	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_DYNAMIC]);
 	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::WIREFRAME_STATIC]);
 
-	if (mDebugBoundingBoxesEnabled)
-	{
-		mCommandList->SetPipelineState(mPSOs["opaque_wireframe"].Get());
-		DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES]);
-	}
+	//if (mDebugBoundingBoxesEnabled)
+	//{
+	//	mCommandList->SetPipelineState(mPSOs["opaque_wireframe"].Get());
+	//	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES]);
+	//}
 
 	mCommandList->SetPipelineState(mPSOs["envMap"].Get());
 	DrawRenderItems(mCommandList.Get(), mRenderItems[RENDER_ITEM_TYPE::ENVIRONMENT_MAP]);
@@ -649,12 +651,13 @@ void TestApp::DrawShadowMaps()
 void TestApp::BuildSceneBounds()
 {
 	mSceneBoundS.Center = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	mSceneBoundS.Radius = 20;
+	mSceneBoundS.Radius = 3000;
 }
 
 // Update both direction/position and info needed for shadow mapping
 void TestApp::UpdateLights(const Timer& t)
 {
+	return;
 	// Update light data
 	
 	// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
@@ -670,7 +673,7 @@ void TestApp::UpdateLights(const Timer& t)
 	{
 		if (l->Type == LightType::DIRECTIONAL)
 		{
-			auto rotAngle = t.DeltaTime();
+			auto rotAngle = 0.1f*t.DeltaTime();
 			auto rotY = XMMatrixRotationY(rotAngle);
 			auto rotX = XMMatrixRotationX(rotAngle);
 			auto rot = XMMatrixMultiply(rotY, rotX);
@@ -678,7 +681,7 @@ void TestApp::UpdateLights(const Timer& t)
 			XMVECTOR lightDir = XMLoadFloat3(&l->Light->Direction);
 			lightDir = XMVector4Transform(lightDir, rotY);
 			XMStoreFloat3(&l->Light->Direction, lightDir);
-			XMVECTOR lightPos = -0.3f * mSceneBoundS.Radius * lightDir;
+			XMVECTOR lightPos = -mSceneBoundS.Radius * lightDir;
 			XMVECTOR targetPos = XMLoadFloat3(&mSceneBoundS.Center);
 			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
@@ -864,6 +867,7 @@ void TestApp::BuildPSOs()
 		mShaders["opaquePS"]->GetBufferSize()
 	};
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	//opaquePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -1003,9 +1007,9 @@ void TestApp::BuildPSOs()
 	// PSO for shadow map
 	//	
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowPso = opaquePsoDesc;
-	shadowPso.RasterizerState.DepthBias = 150; // 150 for point light; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
+	shadowPso.RasterizerState.DepthBias = 100; // 150 for point light; // very difficult to avoid shadow acne when the light is almost perpendicular to surface normal
 	shadowPso.RasterizerState.DepthBiasClamp = 1.0f; 
-	shadowPso.RasterizerState.SlopeScaledDepthBias = 2.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
+	shadowPso.RasterizerState.SlopeScaledDepthBias = 4.0f;  // depth = 10000, depthscaled = 1.0f works OK with spotlight
 	//shadowPso.RasterizerState.DepthClipEnable = true;
 	shadowPso.pRootSignature = mRootSignature.Get();        // depth = 250000, depthscaled = 1.0f works OK with pointlight; 750000, 10, (5,35) pt
 	shadowPso.VS =
@@ -1041,14 +1045,14 @@ void TestApp::InitLights()
 
 	//++mNumSpotLights;
 
-	//auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
-	//dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
-	//dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
-	//dl->Light->FalloffEnd = 1500.0f;
-	//dl->Light->FalloffStart = 900.0f;
+	auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
+	dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
+	dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
+	dl->Light->FalloffEnd = 1500.0f;
+	dl->Light->FalloffStart = 900.0f;
 
-	//mLights.push_back(dl);
-	//mNumDirLights++;
+	mLights.push_back(dl);
+	mNumDirLights++;
 
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
@@ -1056,7 +1060,7 @@ void TestApp::InitLights()
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
-	pl->Light->Position = { -0.0f, 0.0f, 0.0f };
+	pl->Light->Position = { 0.0f, 0.0f, 0.0f };
 	pl->Near = 1.0f;
 	pl->Far = 800.0f; // TODO: calculate these based on scene bounds from light view
 
@@ -1065,11 +1069,6 @@ void TestApp::InitLights()
 	++mNumPointLights;
 
 	// keep track of this for the shader. NOTE: depending on how i do things, may have to recompile shader if numlights changes at runtime
-
-	//mPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-	//mPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-	//mPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-	//mPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
 	// Write code to make sure light array is sorted in the order dir/spot -> point last. That lets us supply the first descriptor to a textable
 	// of shadowmaps
@@ -1123,10 +1122,16 @@ bool TestApp::Initialize()
 	BuildDescriptors();
 	BuildPSOs();
 	
+	for (size_t i = 0; i < mNumFrameResources; ++i)
+	{
+		mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
+		mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+		UpdateInstanceBuffer(mTimer, mStaticRenderItems);
+	}
 
-	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
-	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-	UpdateInstanceBuffer(mTimer, mStaticRenderItems);
+	// Turn camera around
+	mPlane.Yaw(XM_PI);
+
 
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdLists[] = { mCommandList.Get() };
@@ -1368,11 +1373,11 @@ void TestApp::BuildRootSignature()
 	// Flat shadow maps
 	// Note: it is crucial that the descriptors for the flat shadowmaps are not mixed with the point light descriptors!
 	CD3DX12_DESCRIPTOR_RANGE shdTable;
-	shdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, max(mNumDirLights + mNumSpotLights, 1), 1);
+	shdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, std::max<UINT>(mNumDirLights + mNumSpotLights, 1u), 1);
 
 	// Point shadow maps
 	CD3DX12_DESCRIPTOR_RANGE ptShdTable;
-	ptShdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, max(mNumPointLights, 1), 0, 1); // use space1 as shader is unaware of the size of t3
+	ptShdTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, std::max<UINT>(mNumPointLights, 1u), 0, 1); // use space1 as shader is unaware of the size of t3
 
 	// Create root CBVs.
 	slotRootParameter[0].InitAsDescriptorTable(1, &texTable);  // texture cb
@@ -1473,13 +1478,16 @@ void TestApp::BuildRenderItems()
 	box->StartIndexLocation = box->Geo->DrawArgs["debugBoxes"].StartIndexLocation;
 	box->BaseVertexLocation = box->Geo->DrawArgs["debugBoxes"].BaseVertexLocation;
 
-	int j = 0;
+	mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES].push_back(box);
+
+	
 	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
 	for (auto& g : mGeometries[mLevel.c_str()]->DrawArgs)
 	{
 		auto ri = std::make_shared<RenderItem>(mNumFrameResources);
 
 		idata.World = Math::Identity4x4();
+		//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
 		// TODO SET MATINDEX
 		ri->AddInstance(idata);
 		
@@ -1503,9 +1511,41 @@ void TestApp::BuildRenderItems()
 		XMStoreFloat4x4(&idata.World, bsc*btr);
 		box->AddInstance(idata);
 
-		mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(std::move(ri));
+		mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
 	}
-	mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES].push_back(std::move(box));
+
+	auto plane = mGeometries["Scythe"]->DrawArgs["Plane"];
+	auto ri = std::make_shared<RenderItem>(mNumFrameResources);
+
+	idata.World = Math::Identity4x4();
+	//XMStoreFloat4x4(&idata.World, XMMatrixTranslation(0.0f, 0.0f, -200.0f));
+	//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
+	// TODO SET MATINDEX
+	ri->AddInstance(idata);
+
+	ri->Geo = mGeometries["Scythe"].get();
+	ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	ri->IndexCount = plane.IndexCount;
+	ri->StartIndexLocation = plane.StartIndexLocation;
+	ri->BaseVertexLocation = plane.BaseVertexLocation;
+	ri->Name = "Plane";
+	ri->BoundsB = plane.Bounds;
+	ri->CollisionMesh = mGeometries["Scythe"]->DrawArgs["CollisionMesh"];
+
+	// Add debug box
+	// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+	float scaleX = 2.0f * ri->BoundsB.Extents.x;
+	float scaleY = 2.0f * ri->BoundsB.Extents.y;
+	float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+	XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+	XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+
+	// Then apply world matrix for render item
+	XMStoreFloat4x4(&idata.World, bsc * btr);
+	box->AddInstance(idata);
+
+	mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
+	mPlane.AddRenderItem(ri);
 }
 
 void TestApp::BuildStaticGeometry()
@@ -1633,6 +1673,12 @@ void TestApp::BuildStaticGeometry()
 	assert(success >= 0);
 	m->Name = mLevel;
 	mGeometries[m->Name] = std::move(m);
+
+	auto scythe = std::make_unique<Mesh>(mD3Device, mCommandList);
+	success = scythe->LoadOBJ(mProjectPath + L"Models//Scythe2.obj");
+	assert(success >= 0);
+	scythe->Name = "Scythe";
+	mGeometries["Scythe"] = std::move(scythe);
 }
 
 void TestApp::BuildShadersAndInputLayout()

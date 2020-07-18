@@ -2,7 +2,8 @@
 
 #include "Utilities.h"
 #include "Timer.h"
-#include "Camera.h"
+#include "RenderItem.h"
+#include <functional>
 
 /*
 Long time plans: at frame start, we read keyboard/mouse input and set corresp variables
@@ -19,112 +20,39 @@ public:
 		NEGATIVE,
 		NONE
 	};
+
+	Plane();
 	
-	void Yaw(STEER yaw)
-	{
-		mYawing = yaw;
-	}
+	void Pitch(STEER);
+	void Pitch(float);
 
-	void Roll(STEER roll)
-	{
-		mRolling = roll;
-	}
+	void Yaw(STEER);
+	void Yaw(float);
 
-	void Pitch(STEER pitch)
-	{
-		mPitching = pitch;
-	}
+	void Roll(STEER);
+	void Roll(float);
 
-	void Pitch(float d)
-	{
-		mPitch += d;
-	}
+	void Thrust(bool);
+	void Reverse(bool);
+	void Reverse();
 
-	void Yaw(float d)
-	{
-		mYaw += d;
-	}
-
-	void Roll(float d)
-	{
-		mRoll += d;
-	}
-
-	void Thrust(bool thrust)
-	{
-		mIsAccelerating = thrust;
-	}
-
-	void Reverse(bool rev)
-	{
-		mIsReversing = true;
-	}
-	void Reverse()
-	{
-		mIsReversing = !mIsReversing;
-	}
-
-	/*
-
-	Roll is about nose-axis (Z)
-	Yaw is about vertical axis (Y)
-	Pitch is about transverse axis (X)
-
-	*/
-	void Update(const Timer& t)
-	{		
-		if (mPitching != STEER::NONE)
-			mPitch += ((mPitching == STEER::POSITIVE) ? 1.0f : -1.0f) * t.DeltaTime();
-		if (mYawing != STEER::NONE)
-			mYaw += ((mYawing == STEER::POSITIVE) ? 1.0f : -1.0f) * t.DeltaTime();
-		if (mRolling != STEER::NONE)
-			mRoll += ((mRolling == STEER::POSITIVE) ? 1.0f : -1.0f) * t.DeltaTime();
-
-		UpdatePosition(); // todo use a dirty flag here; we dont want to needlessly spam these calculations
-	}
-
+	void Update(const Timer&);
 	void UpdatePosition();
 
-	DirectX::XMMATRIX View()
-	{
-		return DirectX::XMLoadFloat4x4(&mView);
-	}
+	DirectX::XMMATRIX View();
+	void SetView(DirectX::XMMATRIX);
 
-	// This is not good. Not good. We assume [v] has xaxis in row0 etc, but the view matrix we STORE(mView) is INVERTED. That's why 
-	// regular rendering using this camera works, and yet the shadow rendering doesn't.
-	void SetView(DirectX::XMMATRIX v)
-	{
-		// we reconstruct the view every update()
-		auto& x = v.r[0];
-		auto& y = v.r[1];
-		auto& z = v.r[2];
-		auto& pos = v.r[3];
+	DirectX::XMFLOAT3 GetPos3f();
 
-		DirectX::XMStoreFloat4(&mAxisX, x);
-		DirectX::XMStoreFloat4(&mAxisY, y);
-		DirectX::XMStoreFloat4(&mAxisZ, z);
-		DirectX::XMStoreFloat4(&mPos, pos);
-	}
+	float X();
+	float Y();
+	float Z();
 
-	float X()
-	{
-		return mPos.x;
-	}
-	float Y()
-	{
-		return mPos.y;
-	}
-	float Z()
-	{
-		return mPos.z;
-	}
-
-	DirectX::XMFLOAT3 GetPos3f()
-	{
-		return { mPos.x, mPos.y, mPos.z };
-	}
+	void AddRenderItem(std::shared_ptr<RenderItem>);
 
 private:
+	std::shared_ptr<RenderItem> mPlaneRenderItem = nullptr;
+
 	STEER mYawing = STEER::NONE;
 	STEER mRolling = STEER::NONE;
 	STEER mPitching = STEER::NONE;
@@ -139,9 +67,21 @@ private:
 	DirectX::XMFLOAT4 mPos = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 	DirectX::XMFLOAT4X4 mView;
+	DirectX::XMFLOAT4X4 mPlaneView1;
 
 	DirectX::XMFLOAT4 mAxisX = { 1.0f, 0.0f, 0.0f, 0.0f};
 	DirectX::XMFLOAT4 mAxisY = { 0.0f, 1.0f, 0.0f, 0.0f };
 	DirectX::XMFLOAT4 mAxisZ = { 0.0f, 0.0f, 1.0f, 0.0f };
+
+	std::function<DirectX::XMVECTOR(DirectX::XMVECTOR, DirectX::XMVECTOR, float)> mAcceleration;
+	
+	const float mMass = 1.0f;
+	const float mLiftCoef = 1.0f;
+	const float mDragCoef = 1.0f;
+	const float mGravity = 1.0f;
+	
+	float mAccelMin = 0.0f;
+	float mAccelMax = 5.0f;
+	float mAccelRate = 1.0f;
 };
 

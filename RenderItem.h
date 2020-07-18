@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Math.h"
 #include <DirectXMath.h>
 #include "Mesh.h"
 #include "FrameResource.h"
@@ -55,6 +54,9 @@ struct RenderItem
 	UINT IndexCount = 0;
 	UINT StartIndexLocation = 0;
 	int  BaseVertexLocation = 0;
+
+	// Convex hull representation
+	SubmeshGeometry CollisionMesh;
 
 public:
 	int Id() const { return mId; }
