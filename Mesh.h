@@ -57,7 +57,7 @@ public:
     // We can free this memory after we finish upload to the GPU.
     void DisposeUploaders();
 
-    int LoadOBJ(std::wstring filename);
+    int LoadOBJ(std::wstring filename, bool createCPUBufferOnly);
 
 private:
     const Microsoft::WRL::ComPtr<ID3D12Device>& mD3Device = nullptr;

@@ -20,7 +20,8 @@ enum class RENDER_ITEM_TYPE
 	// Unique render items
 	DEBUG_BOXES,
 	ENVIRONMENT_MAP,
-	DEBUG_QUAD_SHADOWMAP
+	DEBUG_QUAD_SHADOWMAP,
+	COLLISION_MESH
 };
 
 // The engine takes care of instantiating the RenderItem proper, which is then returned. 

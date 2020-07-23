@@ -9,7 +9,7 @@ class Main :
 	public WindowsBase
 {
 public:
-	Main(HINSTANCE hInst) : WindowsBase(hInst) {};
+	Main(HINSTANCE hInst);
 	Main(const Main& rhs) = delete; // remove assignment constructor
 	Main& operator=(const Main& rhs) = delete; // remove copy constructor
 	virtual ~Main();
@@ -30,6 +30,19 @@ protected:
 	Plane mPlane;
 
 	POINT mLastMousePos = {};
+
+	// Physics variables
+	rp3d::PhysicsCommon mPhysicsCommon;
+	rp3d::PhysicsWorld* mPhysicsWorld;
+	
+	// Time between two rendering frames is unlikely to be a direct multiple of physics timesteps. 
+	// To make sure all time is "used", we accumulate time remainders between frames
+	float mTimeAccumulator;
+
+	// Time in seconds for each iteration of physics engine
+	const float mPhysicsTimeStep = 1 / 60.0f;
+
+	bool mAllowPhysics = false;
 };
 
 // Entry point. Main.Initialize() is responsible for creating the window. 

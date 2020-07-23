@@ -43,7 +43,7 @@ Loads a mesh from an OBJ file, including submeshes.
 
 Returns an integer less than 0 on failure. Returns 0 for success.
 */
-int Mesh::LoadOBJ(wstring filename)
+int Mesh::LoadOBJ(wstring filename, bool vertexIndexListsOnly = false)
 {
     assert(mD3Device);
     assert(mCommandList);
@@ -220,8 +220,11 @@ int Mesh::LoadOBJ(wstring filename)
     ThrowIfFailed(D3DCreateBlob(ibByteSize, &IndexBufferCPU));
     CopyMemory(IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
-    VertexBufferGPU = Utilities::CreateDefaultBuffer(mD3Device.Get(), mCommandList.Get(), vertices.data(), vbByteSize, VertexBufferUploader);
-    IndexBufferGPU = Utilities::CreateDefaultBuffer(mD3Device.Get(), mCommandList.Get(), indices.data(), ibByteSize, IndexBufferUploader);
+    if (!createCPUBufferOnly)
+    {
+        VertexBufferGPU = Utilities::CreateDefaultBuffer(mD3Device.Get(), mCommandList.Get(), vertices.data(), vbByteSize, VertexBufferUploader);
+        IndexBufferGPU = Utilities::CreateDefaultBuffer(mD3Device.Get(), mCommandList.Get(), indices.data(), ibByteSize, IndexBufferUploader);
+    }
 
     VertexByteStride = sizeof(Vertex);
     VertexBufferByteSize = vbByteSize;

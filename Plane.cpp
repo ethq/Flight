@@ -24,6 +24,11 @@ Plane::Plane()
 	};
 }
 
+void Plane::AddPhysicsBody(rp3d::RigidBody *const rb)
+{
+	mPhysicsBody = rb;
+}
+
 void Plane::Yaw(STEER yaw)
 {
 	mYawing = yaw;
@@ -89,6 +94,13 @@ void Plane::Update(const Timer& t)
 
 XMMATRIX Plane::View()
 {
+	auto& currTransform = mPhysicsBody->getTransform();
+	if (currTransform != mTransform)
+	{
+		mTransform = currTransform;
+		UpdateViewMatrix();
+	}
+
 	return DirectX::XMLoadFloat4x4(&mView);
 }
 
@@ -124,6 +136,57 @@ float Plane::Z()
 DirectX::XMFLOAT3 Plane::GetPos3f()
 {
 	return { mPos.x, mPos.y, mPos.z };
+}
+
+void Plane::UpdateViewMatrix()
+{
+	auto orientation = mTransform.getOrientation().getMatrix();
+	auto position = mTransform.getPosition();
+
+	rp3d::Vector3 xax(mAxisX.x, mAxisX.y, mAxisX.z);
+	rp3d::Vector3 yax(mAxisY.x, mAxisY.y, mAxisY.z);
+	rp3d::Vector3 zax(mAxisZ.x, mAxisZ.y, mAxisZ.z);
+
+	xax = orientation * xax;
+	yax = orientation * yax;
+	zax = orientation * zax;
+
+	mAxisX.x = xax.x;
+	mAxisX.y = xax.y;
+	mAxisX.z = xax.z;
+
+	mAxisY.x = yax.x;
+	mAxisY.y = yax.y;
+	mAxisY.z = yax.z;
+
+	mAxisZ.x = zax.x;
+	mAxisZ.y = zax.y;
+	mAxisZ.z = zax.z;
+
+	mPos.x = position.x;
+	mPos.y = position.y;
+	mPos.z = position.z;
+
+	auto dxpos = XMLoadFloat4(&mPos);
+	auto dxxax = XMLoadFloat4(&mAxisX);
+	auto dxyax = XMLoadFloat4(&mAxisY);
+	auto dxzax = XMLoadFloat4(&mAxisZ);
+
+	DirectX::XMMATRIX view = DirectX::XMMATRIX(dxxax, dxyax, dxzax, dxpos);
+	auto det = DirectX::XMMatrixDeterminant(view);
+	DirectX::XMStoreFloat4x4(&mView, DirectX::XMMatrixInverse(&det, view)); // maybe dont need transpose if using colmajor but well see
+
+	float pAddZ = 10.0f;
+	float pAddY = 5.0f;
+	auto planepos = dxpos;
+	planepos += pAddZ * dxzax;
+	planepos -= pAddY * dxyax;
+	auto pview = XMMATRIX(-1.0f * dxxax, dxyax, -1.0f * dxzax, planepos);
+
+	if (mBodyRenderItem)
+		XMStoreFloat4x4(&mBodyRenderItem->Instance(0).World, pview);
+	if (mCollisionMesh)
+		XMStoreFloat4x4(&mCollisionMesh->Instance(0).World, pview);
 }
 
 void Plane::UpdatePosition()

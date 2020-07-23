@@ -4,6 +4,7 @@
 #include "Timer.h"
 #include "RenderItem.h"
 #include <functional>
+#include "reactphysics3d.h"
 
 /*
 Long time plans: at frame start, we read keyboard/mouse input and set corresp variables
@@ -50,6 +51,10 @@ public:
 
 	void AddBody(std::shared_ptr<RenderItem>);
 	void AddCollisionMesh(std::shared_ptr<RenderItem>);
+	void AddPhysicsBody(rp3d::RigidBody *const);
+
+private:
+	void UpdateViewMatrix();
 
 private:
 	std::shared_ptr<RenderItem> mBodyRenderItem = nullptr;
@@ -65,7 +70,7 @@ private:
 
 	bool mIsReversing = false;
 
-	DirectX::XMFLOAT4 mPos = { 0.0f, 5.0f, 0.0f, 1.0f };
+	DirectX::XMFLOAT4 mPos = { 0.0f, 5.0f, -30.0f, 1.0f };
 
 	DirectX::XMFLOAT4X4 mView;
 	DirectX::XMFLOAT4X4 mPlaneView1;
@@ -84,5 +89,8 @@ private:
 	float mAccelMin = 0.0f;
 	float mAccelMax = 5.0f;
 	float mAccelRate = 1.0f;
+
+	rp3d::RigidBody* mPhysicsBody;
+	rp3d::Transform mTransform;
 };
 

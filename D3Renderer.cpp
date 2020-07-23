@@ -1008,22 +1008,22 @@ void D3Renderer::InitLights()
 
 	//++mNumSpotLights;
 
-	auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
-	dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
-	dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
-	dl->Light->FalloffEnd = 1500.0f;
-	dl->Light->FalloffStart = 900.0f;
+	//auto dl = std::make_shared<LightPovData>(LightType::DIRECTIONAL, mD3Device);
+	//dl->Light->Direction = { 1.0f, -1.0f, 1.0f };
+	//dl->Light->Strength = { 0.5f, 0.5f, 0.5f };
+	//dl->Light->FalloffEnd = 1500.0f;
+	//dl->Light->FalloffStart = 900.0f;
 
-	mLights.push_back(dl);
-	mNumDirLights++;
+	//mLights.push_back(dl);
+	//mNumDirLights++;
 
 	auto pl = std::make_shared<LightPovData>(LightType::POINT, mD3Device, mDsvDescriptorSize);
 	pl->Light->Direction = { 0.0f, 0.0f, 0.0f };
-	pl->Light->Strength = { 0.7f, 0.7f, 0.7f };
+	pl->Light->Strength = { 0.3f, 0.7f, 0.7f };
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
-	pl->Light->Position = { 0.0f, 0.0f, 0.0f };
+	pl->Light->Position = { 0.0f, 20.0f, 50.0f };
 	pl->Near = 1.0f;
 	pl->Far = 800.0f; // TODO: calculate these based on scene bounds from light view
 

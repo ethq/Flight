@@ -1,15 +1,25 @@
 #include "Main.h"
 
 using namespace DirectX;
+using namespace rp3d;
+
+Main::Main(HINSTANCE hInst) :
+	WindowsBase(hInst), mTimeAccumulator(0.0f)
+{};
+
 
 Main::~Main()
 {
-
+	mPhysicsCommon.destroyPhysicsWorld(mPhysicsWorld);
 }
 
 // -> constructor?
-bool Main::Initialize()
+bool Main::Initialize() 
 {
+	// 
+	// Rendering initialization
+	//
+
 	// Window initialization
 	WindowsBase::Initialize();
 
@@ -42,12 +52,45 @@ bool Main::Initialize()
 
 	mRenderer->InitializeEnd();
 
+	// 
+	// Physics initialization
+	//
+
+
+	PhysicsWorld::WorldSettings settings;
+	settings.defaultVelocitySolverNbIterations = 20;
+	settings.isSleepingEnabled = true;
+	settings.gravity = Vector3(0.0f, -9.81f, 0.0f);
+
+	mPhysicsWorld = mPhysicsCommon.createPhysicsWorld(settings);
+
+	Quaternion orientation = Quaternion::identity();
+	Transform transform(Vector3(mPlane.X(), mPlane.Y(), mPlane.Z()), orientation);
+
+	// vertices are supplied as x1, y1, z1, x2, y2, z2, x3, y3, z3, ...
+	
+	//PolygonVertexArray* pva = new PolygonVertexArray()
+	
+	RigidBody* planeBody = mPhysicsWorld->createRigidBody(transform);
+	mPlane.AddPhysicsBody(planeBody);
+	mPlane.CreateCollisionMesh(mPhysicsCommon);
+
 	return true;
 }
 
 void Main::Update(const Timer& t)
 {
-	mPlane.Update(t);
+	mTimeAccumulator += t.DeltaTime();
+
+	// Update physics
+	while (mTimeAccumulator > mPhysicsTimeStep)
+	{
+		if (mAllowPhysics)
+			mPhysicsWorld->update(mPhysicsTimeStep);
+		mTimeAccumulator -= mPhysicsTimeStep;
+	}
+
+	// Draw scene
 	mRenderer->SetView(mPlane.View());
 
 	mRenderer->Update(t);
@@ -146,6 +189,7 @@ void Main::OnKeyDown(WPARAM wParam, LPARAM lParam)
 		break;
 	case 0x49:
 		// I
+		mAllowPhysics = !mAllowPhysics;
 		break;
 	}
 }

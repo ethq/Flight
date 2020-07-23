@@ -5,6 +5,8 @@
 #include <crtdbg.h>
 #endif
 
+#define NOMINMAX
+
 #include <Windows.h>
 #include <windowsx.h>
 #include <wrl.h>
