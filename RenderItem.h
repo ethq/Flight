@@ -23,21 +23,36 @@ enum class RENDER_ITEM_TYPE
 	DEBUG_QUAD_SHADOWMAP
 };
 
-/*
-Just a small helper class to store info needed to draw a single item
-*/
-struct RenderItem
+// The engine takes care of instantiating the RenderItem proper, which is then returned. 
+struct RENDERITEM_PARAMS
 {
+	RENDER_ITEM_TYPE Type = RENDER_ITEM_TYPE::OPAQUE_DYNAMIC;
+	std::string MeshName = "";
+	UINT MaterialIndex = 0;
+	UINT TextureIndex = 0;
+	DirectX::XMFLOAT4X4 World = Math::Identity4x4();
+	UINT MaxInstances = 1;
+};
+
+class D3Renderer; // For friend
+
+class RenderItem
+{
+	friend D3Renderer;
+public:
 	RenderItem(int numFramesDirty, UINT maxInstances = 1u) 
 		: NumFramesDirty(numFramesDirty), mId(++nextId), MaxInstances(maxInstances) {};
 
-	// We disable copy and assignment constructors to avoid mess with instance ids. Work around later if needed.
+	// We disable copy and assignment constructors to avoid mess with ids. Work around later if needed.
 	RenderItem(const RenderItem&) = delete;
 	RenderItem& operator=(const RenderItem&) = delete;
 
+// These variables are notationally "public", as they are used by the rendering engine.
+protected:
 	// Given in local space
 	DirectX::BoundingBox BoundsB{};
 
+	// Main mesh name - the render item will be loaded from /Models/Name.obj
 	std::string Name;
 
 	// We use a circular array of frame "resources" to mitigate cpu/gpu locking. As such, set this to however many
@@ -54,9 +69,6 @@ struct RenderItem
 	UINT IndexCount = 0;
 	UINT StartIndexLocation = 0;
 	int  BaseVertexLocation = 0;
-
-	// Convex hull representation
-	SubmeshGeometry CollisionMesh;
 
 public:
 	int Id() const { return mId; }

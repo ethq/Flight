@@ -144,7 +144,6 @@ void Plane::UpdatePosition()
 	// Experiment with order... or disable all but one?
 	DirectX::XMMATRIX T = P * R * Y;
 
-
 	xax = XMVector3Normalize(XMVector4Transform(xax, T));
 	yax = XMVector3Normalize(XMVector4Transform(yax, T));
 	zax = XMVector3Normalize(XMVector4Transform(zax, T));
@@ -180,15 +179,21 @@ void Plane::UpdatePosition()
 	planepos -= pAddY * yax;
 	auto pview = XMMATRIX(-1.0f*xax, yax, -1.0f*zax, planepos);
 
-	if (mPlaneRenderItem)
-		XMStoreFloat4x4(&mPlaneRenderItem->Instance(0).World, pview);
+	if (mBodyRenderItem)
+		XMStoreFloat4x4(&mBodyRenderItem->Instance(0).World, pview);
+	if (mCollisionMesh)
+		XMStoreFloat4x4(&mCollisionMesh->Instance(0).World, pview);
 
 	mPitch = 0.0f;
 	mYaw = 0.0f;
 	mRoll = 0.0f;
 }
 
-void Plane::AddRenderItem(std::shared_ptr<RenderItem> pri)
+void Plane::AddBody(std::shared_ptr<RenderItem> pri)
 {
-	mPlaneRenderItem = pri;
+	mBodyRenderItem = pri;
+}
+void Plane::AddCollisionMesh(std::shared_ptr<RenderItem> pri)
+{
+	mCollisionMesh = pri;
 }

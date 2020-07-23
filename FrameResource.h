@@ -63,10 +63,16 @@ struct Vertex
 struct FrameResource
 {
     // renderItemsAndInstanceCounts is expected to be given in the form < renderitem id, max number of instances > 
-    FrameResource(ID3D12Device* device, UINT passCount, std::map<UINT, UINT> renderItemsAndInstanceCounts, UINT matCount);
+    FrameResource(ID3D12Device* device, UINT passCount, std::map<int, UINT> renderItemsAndInstanceCounts, UINT matCount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource();
+
+    /*
+    Only instance counts are needed - so far. 
+    */
+    void RemoveRenderItems(std::vector<int> ids);
+    void AddRenderItems(std::map<int, UINT>& renderItemsAndInstanceCounts);
 
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CmdListAlloc;
 
@@ -76,9 +82,12 @@ struct FrameResource
     
     // Each renderitem has a unique id, to which we associate an upload buffer of instance data. 
     // This upload buffer in turn admits a given maximal number of instances internally. 
-    std::map<UINT, std::unique_ptr<UploadBuffer<InstanceData>>> InstanceBuffers;
+    std::map<int, std::unique_ptr<UploadBuffer<InstanceData>>> InstanceBuffers;
 
     std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
     UINT64 Fence = 0;
+
+private:
+    ID3D12Device* mDevice = nullptr;
 };

@@ -1,4 +1,4 @@
-#include "TestApp.h"
+#include "D3Renderer.h"
 #include "GeometryGenerator.h"
 #include "Utilities.h"
 #include "Mesh.h"
@@ -6,10 +6,111 @@
 using namespace DirectX;
 using namespace Microsoft::WRL;
 
-void TestApp::Update(const Timer& t)
+D3Renderer::D3Renderer(HWND hwnd) 
+	: D3Base(hwnd)
 {
-	OnKeyboardInput(t);
-	mPlane.Update(t);
+	
+};
+
+D3Renderer::~D3Renderer()
+{
+
+}
+
+// Initialization contains a call to the virtual CreateRtvAndDsv(...); hence we can't do it in the constructor. 
+bool D3Renderer::Initialize(bool keepQueueOpen)
+{
+	if (!D3Base::Initialize())
+		return false;
+
+	wchar_t buffer[MAX_PATH];
+	GetModuleFileNameW(NULL, buffer, MAX_PATH);
+
+	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
+	// So we need the project path, or do as recommended, store in user/documents or something like that.
+	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
+	mProjectPath = L"D:\\GitHub\\Flight\\";
+
+	// Create default view matrix
+	XMVECTOR xax = { 1.0f, 0.0f, 0.0f, 0.0f };
+	XMVECTOR yax = { 0.0f, 1.0f, 0.0f, 0.0f };
+	XMVECTOR zax = { 0.0f, 0.0f, 1.0f, 0.0f };
+	XMVECTOR pos = { -20.0f, 3.0f, 0.0f, 1.0f };
+
+	// Create view matrix [right, up, forward, pos]
+	XMMATRIX view = XMMATRIX(xax, yax, zax, pos );
+	auto det = XMMatrixDeterminant(view);
+	XMStoreFloat4x4(&mView, XMMatrixInverse(&det, view));
+
+
+	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+	mBlurFilter = std::make_unique<BlurFilter>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
+	mSobelFilter = std::make_unique<SobelFilter>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
+	mOffscreenRT = std::make_unique<RenderTarget>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
+
+	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
+
+	BuildSceneBounds();
+
+	// InitLights must precede BuildDescriptorHeaps, because it needs to know how many descriptors each shadow map needs
+	// Note that Light constructors do not begin to build descriptors, so that they can provide information to the construction
+	// of the heap.
+	InitLights();
+
+	/*
+	mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[0]));
+	mProj = mLights[0]->Proj;
+	*/
+
+	//XMStoreFloat4x4(&mProj, XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0f, 70.0f, 110.0f));
+
+	LoadTextures();
+	BuildRootSignature();
+	BuildPostprocessRootSignature();
+	BuildShadersAndInputLayout();
+	BuildStaticGeometry();
+	BuildMaterials();
+	BuildRenderItems();
+	BuildFrameResources();
+	BuildDescriptorHeaps();
+	BuildDescriptors();
+	BuildPSOs();
+
+	// Turn camera around
+	//mPlane.Yaw(XM_PI);
+
+	if (keepQueueOpen)
+		return true;
+
+	InitializeEnd();
+
+	return true;
+}
+
+void D3Renderer::InitializeEnd()
+{
+	for (size_t i = 0; i < mNumFrameResources; ++i)
+	{
+		mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
+		mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+		UpdateInstanceBuffer(mStaticRenderItems);
+	}
+
+
+	ThrowIfFailed(mCommandList->Close());
+	ID3D12CommandList* cmdLists[] = { mCommandList.Get() };
+	mCommandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+	// Wait for init to complete
+	FlushCommandQueue();
+}
+
+
+void D3Renderer::Update(const Timer& t)
+{
+	//OnKeyboardInput(t);
+	//mPlane.Update(t);
 
 
 	mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
@@ -25,34 +126,33 @@ void TestApp::Update(const Timer& t)
 
 
 	UpdateGeometry(t);
-	UpdateInstanceBuffer(t, mDynamicRenderItems);
+	UpdateInstanceBuffer(mDynamicRenderItems);
 	UpdateMaterialBuffer(t);
 	UpdateLights(t);
-	//UpdateShadowPassCB(t); // called in drawshadowmap
 	UpdateMainPassCB(t);
 }
 
-void TestApp::OnMouseDown(WPARAM btnState, int x, int y)
-{
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
-
-	SetCapture(mMainWnd);
-}
-
-void TestApp::OnMouseUp(WPARAM btnState, int x, int y)
-{
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
-
-	// Screen space coordinates never exceed float range
-	Pick(static_cast<float>(x), static_cast<float>(y));
-
-	ReleaseCapture();
-}
+//void D3Renderer::OnMouseDown(WPARAM btnState, int x, int y)
+//{
+//	mLastMousePos.x = x;
+//	mLastMousePos.y = y;
+//
+//	SetCapture(mMainWnd);
+//}
+//
+//void D3Renderer::OnMouseUp(WPARAM btnState, int x, int y)
+//{
+//	mLastMousePos.x = x;
+//	mLastMousePos.y = y;
+//
+//	// Screen space coordinates never exceed float range
+//	Pick(static_cast<float>(x), static_cast<float>(y));
+//
+//	ReleaseCapture();
+//}
 
 // Takes an input coordinate in screen space.
-void TestApp::Pick(float x, float y)
+void D3Renderer::Pick(float x, float y)
 {
 	// Determine picking ray in view space
 	/*
@@ -71,8 +171,9 @@ void TestApp::Pick(float x, float y)
 	XMVECTOR rayDir = XMVectorSet( xn, yn, 1.0f, 0.0f );
 
 	// Transform picking ray into each colliding item's local space - V^-1: View --> World
-	auto det = XMMatrixDeterminant(mPlane.View());
-	auto invView = XMMatrixInverse(&det, mPlane.View());
+	auto view = XMLoadFloat4x4(&mView);
+	auto det = XMMatrixDeterminant(view);
+	auto invView = XMMatrixInverse(&det, view);
 
 	for (auto category : mPickableRenderItems)
 	{
@@ -136,162 +237,27 @@ void TestApp::Pick(float x, float y)
 	}
 }
 
-void TestApp::OnKeyboardInput(const Timer& gt)
+void D3Renderer::OnResize()
 {
-	//const float dt = gt.DeltaTime();
+	D3Base::OnResize();
 
-	//if (GetAsyncKeyState('W') & 0x8000)
-	//	mCamera.Walk(10.0f * dt);
-
-	//if (GetAsyncKeyState('S') & 0x8000)
-	//	mCamera.Walk(-10.0f * dt);
-
-	//if (GetAsyncKeyState('A') & 0x8000)
-	//	mCamera.Strafe(-10.0f * dt);
-
-	//if (GetAsyncKeyState('D') & 0x8000)
-	//	mCamera.Strafe(10.0f * dt);
-
-	mCamera.UpdateViewMatrix();
-}
-
-void TestApp::OnMouseMove(WPARAM btnState, int x, int y)
-{
-	if ((btnState & MK_LBUTTON) != 0)
-	{
-		// Make each pixel correspond to a quarter of a degree.
-		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
-
-		//mCamera.Pitch(dy);
-		//mCamera.RotateY(-dx);
-
-		mPlane.Pitch(dy);
-		mPlane.Yaw(-dx);
-	}
-	else if ((btnState & MK_RBUTTON) != 0)
-	{
-		// Make each pixel correspond to 0.2 unit in the scene.
-		float dx = 0.05f * static_cast<float>(x - mLastMousePos.x);
-		float dy = 0.05f * static_cast<float>(y - mLastMousePos.y);
-
-		//// Update the camera radius based on input.
-		//mRadius += dx - dy;
-
-		//// Restrict the radius.
-		//mRadius = Math::Clamp(mRadius, 5.0f, 150.0f);
-	}
-
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
-}
-
-void TestApp::OnKeyUp(WPARAM wParam, LPARAM lParam)
-{
-	switch (wParam)
-	{
-	case 0x41:
-	case 0x44:
-		mPlane.Roll(Plane::STEER::NONE);
-		break;
-	case VK_SPACE:
-	case 0x46:
-		mPlane.Pitch(Plane::STEER::NONE);
-		break;
-	case 0x47:
-		// G
-		mPlane.Yaw(Plane::STEER::NONE);
-		break;
-	case 0x48:
-		// H
-		mPlane.Yaw(Plane::STEER::NONE);
-		break;
-	case VK_BACK:
-		mPlane.Thrust(false);
-		break;
-	}
-}
-
-void TestApp::OnKeyDown(WPARAM wParam, LPARAM lParam)
-{
-	switch (wParam)
-	{
-	case 0x41:
-		// A
-		mPlane.Roll(Plane::STEER::POSITIVE);
-		break;
-	case VK_BACK:
-		mPlane.Thrust(true);
-		break;
-	case VK_DELETE:
-		mPlane.Reverse();
-		break;
-	case 0x44:
-		// D
-		mPlane.Roll(Plane::STEER::NEGATIVE);
-		break;
-	case VK_SPACE:
-		mPlane.Pitch(Plane::STEER::NEGATIVE);
-		break;
-	case 0x46:
-		// F
-		mPlane.Pitch(Plane::STEER::POSITIVE);
-		break;
-	case 0x47:
-		// G
-		mDbgFlag = !mDbgFlag;
-		mPlane.Yaw(Plane::STEER::POSITIVE);
-		break;
-	case 0x48:
-		// H
-		mPlane.Yaw(Plane::STEER::NEGATIVE);
-		break;
-	case 0x49:
-		// I
-		mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[0]));
-		mProj = mLights[0]->Proj;
-		switch (gIdx)
-		{
-		case 0:
-			OutputDebugString(L"+X\n");
-			break;
-		case 1:
-			OutputDebugString(L"-X\n");
-			break;
-		case 2:
-			OutputDebugString(L"+Y\n");
-			break;
-		case 3:
-			OutputDebugString(L"-Y\n");
-			break;
-		case 4:
-			OutputDebugString(L"+Z\n");
-			break;
-		case 5:
-			OutputDebugString(L"-Z\n");
-			break;
-		default:
-			break;
-		}
-		gIdx++;
-		if (gIdx > 5)
-			gIdx = 0;
-		break;
-	}
+	// The window resized, so update the aspect ratio and recompute the projection matrix.
+	DirectX::XMMATRIX P = DirectX::XMMatrixPerspectiveFovLH(0.25f * Math::Pi, AspectRatio(), 1.0f, 3000.0f);
+	DirectX::XMStoreFloat4x4(&mProj, P);
 }
 
 // Clears instances from a RenderItem. Since RenderItems are coupled to FrameResources, we need to clear the upload buffers there as well;
 // So, for now, it is not enough to have a single member function to clear in RenderItem
-void TestApp::ClearInstances(std::shared_ptr<RenderItem> ri)
+void D3Renderer::ClearInstances(std::shared_ptr<RenderItem> ri)
 {
 	// Clear out upload buffers
 	InstanceData idata;
 	ZeroMemory(&idata, sizeof(InstanceData));
 
-	for (auto i = 0; i < ri->InstanceCount(); ++i)
+	for (size_t i = 0; i < ri->InstanceCount(); ++i)
 	{
-		for (auto j = 0; j < mNumFrameResources; ++j)
-			mFrameResources[j]->InstanceBuffers[ri->Id()]->CopyData(i, idata);
+		for (UINT j = 0; j < mNumFrameResources; ++j)
+			mFrameResources[j]->InstanceBuffers[ri->Id()]->CopyData(static_cast<int>(i), idata);
 	}
 
 	// Clear copy inside render item
@@ -299,7 +265,7 @@ void TestApp::ClearInstances(std::shared_ptr<RenderItem> ri)
 }
 
 // Todo: test ClearInstances - seems to work well, but yknow.
-void TestApp::UpdateGeometry(const Timer& t)
+void D3Renderer::UpdateGeometry(const Timer& t)
 {
 	return;
 
@@ -342,7 +308,7 @@ void TestApp::UpdateGeometry(const Timer& t)
 	}
 }
 
-void TestApp::Draw(const Timer& t)
+void D3Renderer::Draw(const Timer& t)
 {
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 
@@ -507,7 +473,7 @@ void TestApp::Draw(const Timer& t)
 	FlushCommandQueue();
 }
 
-void TestApp::DrawFullscreenQuad(ID3D12GraphicsCommandList* cmdList)
+void D3Renderer::DrawFullscreenQuad(ID3D12GraphicsCommandList* cmdList)
 {
 	cmdList->IASetVertexBuffers(0, 1, nullptr);
 	cmdList->IASetIndexBuffer(nullptr);
@@ -516,7 +482,7 @@ void TestApp::DrawFullscreenQuad(ID3D12GraphicsCommandList* cmdList)
 	cmdList->DrawInstanced(6, 1, 0, 0);
 }
 
-void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
+void D3Renderer::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<std::shared_ptr<RenderItem>>& ritems)
 {
 	for (size_t i = 0; i < ritems.size(); ++i)
 	{
@@ -536,7 +502,7 @@ void TestApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vec
 
 // Convention: it is the Light classes responsibility to return view matrices that map from world space to view space.
 // passIdx is used purely for point lights, as they require 6 rendering passes, and idx tells us which one we want
-void TestApp::UpdateShadowPassCB(size_t lightIndex, UINT passIdx = 0)
+void D3Renderer::UpdateShadowPassCB(size_t lightIndex, UINT passIdx = 0)
 {
 	auto& l = mLights[lightIndex];
 	XMMATRIX view = XMLoadFloat4x4(&l->View[passIdx]);
@@ -590,10 +556,10 @@ void TestApp::UpdateShadowPassCB(size_t lightIndex, UINT passIdx = 0)
 
 	// magic +1 due to the regular "main pass" constants
 	// magic +k*6 due to each light having 6 pass constants
-	currPassCB->CopyData(1 + lightIndex*6 + passIdx, mShadowPassCB);
+	currPassCB->CopyData(static_cast<int>(1 + lightIndex*6 + passIdx), mShadowPassCB);
 }
 
-void TestApp::DrawShadowMaps()
+void D3Renderer::DrawShadowMaps()
 {
 	for (size_t k = 0; k < mLights.size(); ++k)
 	{
@@ -648,14 +614,14 @@ void TestApp::DrawShadowMaps()
 	}
 }
 
-void TestApp::BuildSceneBounds()
+void D3Renderer::BuildSceneBounds()
 {
 	mSceneBoundS.Center = XMFLOAT3(0.0f, 0.0f, 0.0f);
 	mSceneBoundS.Radius = 3000;
 }
 
 // Update both direction/position and info needed for shadow mapping
-void TestApp::UpdateLights(const Timer& t)
+void D3Renderer::UpdateLights(const Timer& t)
 {
 	return;
 	// Update light data
@@ -762,9 +728,9 @@ void TestApp::UpdateLights(const Timer& t)
 	}
 }
 
-void TestApp::UpdateMainPassCB(const Timer& gt)
+void D3Renderer::UpdateMainPassCB(const Timer& gt)
 {
-	XMMATRIX view = mPlane.View(); // XMLoadFloat4x4(&mLights[0]->View[gIdx]); // mPlane.View();
+	XMMATRIX view = XMLoadFloat4x4(&mView); // XMLoadFloat4x4(&mLights[0]->View[gIdx]); // mPlane.View();
 	XMMATRIX proj = XMLoadFloat4x4(&mProj); // XMLoadFloat4x4(&mLights[0]->Proj[gIdx]); // mProj
 	
 	//auto det = XMMatrixDeterminant(view);
@@ -772,9 +738,6 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 
 	 //XMMATRIX view = XMLoadFloat4x4(&mLights[0]->View[gIdx]);
 	 //XMMATRIX proj = XMLoadFloat4x4(&mLights[0]->Proj[gIdx]);
-
-	//XMMATRIX view = mCamera.GetView();
-	//XMMATRIX proj = mCamera.GetProj();
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -799,7 +762,7 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 	for (size_t i = k; i < MaxLights; ++i, ++k)
 		mPassCB.ShadowTransform[k] = Math::Identity4x4();
 
-	mPassCB.EyePosW = mPlane.GetPos3f();
+	mPassCB.EyePosW = XMFLOAT3(mPosition.x, mPosition.y, mPosition.z);
 
 	mPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -826,14 +789,14 @@ void TestApp::UpdateMainPassCB(const Timer& gt)
 
 
 // Render items are guaranteed to be constructed at this point
-void TestApp::BuildFrameResources()
+void D3Renderer::BuildFrameResources()
 {
-	// one for doing regular passes, six for doing shadow passes. 
-	// in a previous iteration of the holy code, these were getting overwritten and giving very strange rendering results
+	// One for doing regular passes, six for doing shadow passes. 
+	// Note that each light gets a set of pass constants - otherwise, they would overwrite cpu memory before hitting gpu execution.
 	const UINT passCount = 1 + 6*(mNumPointLights + mNumDirLights + mNumSpotLights); 
 
 	// each renderitem must have an uploadbuffer of instance data
-	std::map<UINT, UINT> rItemInstances;
+	std::map<int, UINT> rItemInstances;
 	for (auto& categ : mRenderItems)
 	{
 		for (auto& ri: categ.second)
@@ -846,7 +809,7 @@ void TestApp::BuildFrameResources()
 	}
 }
 
-void TestApp::BuildPSOs()
+void D3Renderer::BuildPSOs()
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
@@ -1030,7 +993,7 @@ void TestApp::BuildPSOs()
 
 // Lights are expected to be stored in the order directional -> spot -> point.
 // This is due to 1) shader compatibility and 2) assumption that flat shadowmaps and cubic shadowmaps lie contiguously in memory
-void TestApp::InitLights()
+void D3Renderer::InitLights()
 {
 	//mLights.push_back(std::make_shared<LightPovData>(LightType::SPOT, mD3Device));
 
@@ -1074,84 +1037,13 @@ void TestApp::InitLights()
 	// of shadowmaps
 }
 
-bool TestApp::Initialize()
-{
-	if (!D3Base::Initialize())
-		return false;
-	
-	wchar_t buffer[MAX_PATH];
-	GetModuleFileNameW(NULL, buffer, MAX_PATH);
-
-	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
-	// So we need the project path, or do as recommended, store in user/documents or something like that.
-	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
-	mProjectPath = L"D:\\GitHub\\Flight\\";
-
-
-	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-
-	mBlurFilter = std::make_unique<BlurFilter>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
-	mSobelFilter = std::make_unique<SobelFilter>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
-	mOffscreenRT = std::make_unique<RenderTarget>(mD3Device.Get(), mClientWidth, mClientHeight, DXGI_FORMAT_R8G8B8A8_UNORM);
-	
-	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
-	
-	BuildSceneBounds();
-
-	// InitLights must precede BuildDescriptorHeaps, because it needs to know how many descriptors each shadow map needs
-	// Note that Light constructors do not begin to build descriptors, so that they can provide information to the construction
-	// of the heap.
-	InitLights(); 
-
-	/*
-	mPlane.SetView(XMLoadFloat4x4(&mLights[0]->View[0]));
-	mProj = mLights[0]->Proj;
-	*/
-
-	//XMStoreFloat4x4(&mProj, XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0f, 70.0f, 110.0f));
-
-	LoadTextures();
-	BuildRootSignature();
-	BuildPostprocessRootSignature();
-	BuildShadersAndInputLayout();
-	BuildStaticGeometry();
-	BuildMaterials();
-	BuildRenderItems();
-	BuildFrameResources();
-	BuildDescriptorHeaps();
-	BuildDescriptors();
-	BuildPSOs();
-	
-	for (size_t i = 0; i < mNumFrameResources; ++i)
-	{
-		mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % mNumFrameResources;
-		mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-		UpdateInstanceBuffer(mTimer, mStaticRenderItems);
-	}
-
-	// Turn camera around
-	mPlane.Yaw(XM_PI);
-
-
-	ThrowIfFailed(mCommandList->Close());
-	ID3D12CommandList* cmdLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
-
-	// Wait for init to complete
-	FlushCommandQueue();
-
-	return true;
-}
-
-// Rename to BuildDescriptors to make things a bit clearer(for myself..)
-
 /*
 Note: As it is, the heap needs to be built in order:
 1) Object CBVs
 2) Texture SRVs
 3) Random crap (shadowmap, sobel, blur, etc)
 */
-void TestApp::BuildDescriptors()
+void D3Renderer::BuildDescriptors()
 {
 	// We put textures at the end of the object constants. Could as well have put the pass cb in here but w/e
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mCbvDescHeap->GetCPUDescriptorHandleForHeapStart());
@@ -1270,7 +1162,7 @@ void TestApp::BuildDescriptors()
 		mLights[i]->Shadowmap()->BuildDescriptors(
 			hDescriptor,
 			gDescriptor,
-			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + (INT)mNumDirLights+mNumSpotLights + i*6, mDsvDescriptorSize));
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(mDsvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + static_cast<INT>(mNumDirLights+mNumSpotLights + i*6), mDsvDescriptorSize));
 
 		// Point lights use a single SRV, but six depth views
 		hDescriptor.Offset(1, mCbvSrvUavDescriptorSize);
@@ -1278,7 +1170,7 @@ void TestApp::BuildDescriptors()
 	}
 }
 
-void TestApp::BuildSobelRootSignature()
+void D3Renderer::BuildSobelRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE srvTable0;
 	srvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -1317,7 +1209,7 @@ void TestApp::BuildSobelRootSignature()
 	));
 }
 
-void TestApp::BuildBlurRootSignature()
+void D3Renderer::BuildBlurRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE srvTable;
 	srvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -1351,13 +1243,13 @@ void TestApp::BuildBlurRootSignature()
 	));
 }
 
-void TestApp::BuildPostprocessRootSignature()
+void D3Renderer::BuildPostprocessRootSignature()
 {
 	BuildSobelRootSignature();
 	BuildBlurRootSignature();
 }
 
-void TestApp::BuildRootSignature()
+void D3Renderer::BuildRootSignature()
 {
 	// Root parameter can be a table, root descriptor or root constants.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[7]; 
@@ -1415,7 +1307,7 @@ void TestApp::BuildRootSignature()
 		IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
 
-void TestApp::BuildRenderItems()
+void D3Renderer::BuildRenderItems()
 {
 	auto skydome = std::make_shared<RenderItem>(mNumFrameResources);
 
@@ -1477,21 +1369,149 @@ void TestApp::BuildRenderItems()
 	box->IndexCount = box->Geo->DrawArgs["debugBoxes"].IndexCount;
 	box->StartIndexLocation = box->Geo->DrawArgs["debugBoxes"].StartIndexLocation;
 	box->BaseVertexLocation = box->Geo->DrawArgs["debugBoxes"].BaseVertexLocation;
+	box->Name = "DEBUG_BOXES";
 
 	mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES].push_back(box);
 
 	
-	// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
-	for (auto& g : mGeometries[mLevel.c_str()]->DrawArgs)
-	{
-		auto ri = std::make_shared<RenderItem>(mNumFrameResources);
+	//// In case the geometry/mesh has many submeshes, we'll create the corresp renderitems in a loop
+	//for (auto& g : mGeometries[mLevel.c_str()]->DrawArgs)
+	//{
+	//	auto ri = std::make_shared<RenderItem>(mNumFrameResources);
 
-		idata.World = Math::Identity4x4();
-		//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
-		// TODO SET MATINDEX
-		ri->AddInstance(idata);
+	//	idata.World = Math::Identity4x4();
+	//	//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
+	//	// TODO SET MATINDEX
+	//	ri->AddInstance(idata);
+	//	
+	//	ri->Geo = mGeometries[mLevel.c_str()].get();
+	//	ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	//	ri->IndexCount = g.second.IndexCount;
+	//	ri->StartIndexLocation = g.second.StartIndexLocation;
+	//	ri->BaseVertexLocation = g.second.BaseVertexLocation;
+	//	ri->Name = g.first;
+	//	ri->BoundsB = g.second.Bounds;
+
+	//	// Add debug box
+	//	// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+	//	float scaleX = 2.0f * ri->BoundsB.Extents.x;
+	//	float scaleY = 2.0f * ri->BoundsB.Extents.y;
+	//	float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+	//	XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+	//	XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+
+	//	// Then apply world matrix for render item
+	//	XMStoreFloat4x4(&idata.World, bsc*btr);
+	//	box->AddInstance(idata);
+
+	//	mRenderItems[RENDER_ITEM_TYPE::OPAQUE_STATIC].push_back(ri);
+	//}
+
+	//auto plane = mGeometries["Scythe"]->DrawArgs["Plane"];
+	//auto ri = std::make_shared<RenderItem>(mNumFrameResources);
+
+	//idata.World = Math::Identity4x4();
+	//XMStoreFloat4x4(&idata.World, XMMatrixTranslation(0.0f, -10.0f, 0.0f));
+	////XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
+	//// TODO SET MATINDEX
+	//ri->AddInstance(idata);
+
+	//ri->Geo = mGeometries["Scythe"].get();
+	//ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	//ri->IndexCount = plane.IndexCount;
+	//ri->StartIndexLocation = plane.StartIndexLocation;
+	//ri->BaseVertexLocation = plane.BaseVertexLocation;
+	//ri->Name = "Plane";
+	//ri->BoundsB = plane.Bounds;
+
+	//// Add debug box
+	//// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+	//float scaleX = 2.0f * ri->BoundsB.Extents.x;
+	//float scaleY = 2.0f * ri->BoundsB.Extents.y;
+	//float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+	//XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+	//XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+
+	//// Then apply world matrix for render item
+	//XMStoreFloat4x4(&idata.World, bsc * btr);
+	//box->AddInstance(idata);
+
+	//mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
+	//mPlane.AddRenderItem(ri);
+}
+
+// Maybe we don't really need a setter for this.
+void D3Renderer::SetView(const XMFLOAT4X4& view)
+{
+	mView = view;
+}
+
+void D3Renderer::SetView(const XMMATRIX& view)
+{
+	XMStoreFloat4x4(&mView, view);
+}
+
+std::shared_ptr<RenderItem> D3Renderer::AddRenderItem(const std::string& MeshFileName, const RENDERITEM_PARAMS& rip)
+{
+	std::vector<RENDERITEM_PARAMS> rips;
+	rips.push_back(rip);
+
+	return AddRenderItem(MeshFileName, rips)[0];
+}
+
+// Expects one RENDERITEM_PARAMS for each mesh/object contained in the given .obj file.
+std::vector<std::shared_ptr<RenderItem>> D3Renderer::AddRenderItem(const std::string& MeshFileName, const std::vector<RENDERITEM_PARAMS>& rips)
+{
+	// Load mesh if not done already
+	if (mGeometries.find(MeshFileName) == mGeometries.end())
+	{
+		auto mesh = std::make_unique<Mesh>(mD3Device, mCommandList);
+		auto success = mesh->LoadOBJ(mProjectPath + L"Models//" + AnsiToWString(MeshFileName) + L".obj");
+		assert(success >= 0);
+		mesh->Name = MeshFileName;
+		mGeometries[MeshFileName] = std::move(mesh);
+	}
+
+	// Make sure we have enough RENDERITEM_PARAMS to match objects in file
+	assert(rips.size() == mGeometries[MeshFileName]->DrawArgs.size());
+
+	// Mesh loaded, create the corresponding renderitem(s)
+	InstanceData idata = {};
+
+	// Debug bounding boxes
+	auto box = mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES][0];
+	assert(box->Name == "DEBUG_BOXES");
+
+	// For upload buffer creation
+	std::map<int, UINT> ritemIdAndInstanceCount;
+
+	// Copy of renderitems, to be returned to user
+	std::vector<std::shared_ptr<RenderItem>> ritems;
+	for (auto& g : mGeometries[MeshFileName]->DrawArgs)
+	{
+		// Find associated parameters
+		auto ripIt = std::find_if(rips.begin(), rips.end(), [&g](const RENDERITEM_PARAMS& rip) { return rip.MeshName == g.first; });
+
+		// They better be there..
+		assert(ripIt != rips.end());
+		auto& rip = (*ripIt);
+
+		// If we are dealing with a collision mesh, don't add it to internal render items. By convention, this item is called
+		// "CollisionMesh" in the .obj file.
+		bool isCollisionMesh = false;
+		if (rip.MeshName == "CollisionMesh")
+			isCollisionMesh = true;
+
+		// Start constructing the render item
+		auto ri = std::make_shared<RenderItem>(mNumFrameResources, rip.MaxInstances);
 		
-		ri->Geo = mGeometries[mLevel.c_str()].get();
+		idata.World = rip.World;
+		idata.MatIndex = rip.MaterialIndex;
+		// TODO add texture index
+		ri->AddInstance(idata);
+
+		// This is basically here as we want to aggregate into large v/ibuffers for performance.
+		ri->Geo = mGeometries[MeshFileName].get();
 		ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ri->IndexCount = g.second.IndexCount;
 		ri->StartIndexLocation = g.second.StartIndexLocation;
@@ -1499,56 +1519,61 @@ void TestApp::BuildRenderItems()
 		ri->Name = g.first;
 		ri->BoundsB = g.second.Bounds;
 
-		// Add debug box
-		// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
-		float scaleX = 2.0f * ri->BoundsB.Extents.x;
-		float scaleY = 2.0f * ri->BoundsB.Extents.y;
-		float scaleZ = 2.0f * ri->BoundsB.Extents.z;
-		XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
-		XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+		if (!isCollisionMesh)
+		{
+			// Add debug box as well. Perhaps a useless feature since the physics engine does all this now.. and we could easily let it implement picking too.
+			// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+			float scaleX = 2.0f * ri->BoundsB.Extents.x;
+			float scaleY = 2.0f * ri->BoundsB.Extents.y;
+			float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+			XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+			XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
 
-		// Then apply world matrix for render item
-		XMStoreFloat4x4(&idata.World, bsc*btr);
-		box->AddInstance(idata);
+			// Then apply world matrix for render item
+			XMStoreFloat4x4(&idata.World, bsc * btr);
+			box->AddInstance(idata);
 
-		mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
+			// For upload buffer
+			ritemIdAndInstanceCount[ri->Id()] = rip.MaxInstances;
+
+			// Internal list
+			mRenderItems[rip.Type].push_back(ri);
+		}
+
+		ritems.push_back(ri);
 	}
 
-	auto plane = mGeometries["Scythe"]->DrawArgs["Plane"];
-	auto ri = std::make_shared<RenderItem>(mNumFrameResources);
+	// Create upload buffers
+	for (auto& fr : mFrameResources)
+		fr->AddRenderItems(ritemIdAndInstanceCount);
 
-	idata.World = Math::Identity4x4();
-	//XMStoreFloat4x4(&idata.World, XMMatrixTranslation(0.0f, 0.0f, -200.0f));
-	//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
-	// TODO SET MATINDEX
-	ri->AddInstance(idata);
-
-	ri->Geo = mGeometries["Scythe"].get();
-	ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	ri->IndexCount = plane.IndexCount;
-	ri->StartIndexLocation = plane.StartIndexLocation;
-	ri->BaseVertexLocation = plane.BaseVertexLocation;
-	ri->Name = "Plane";
-	ri->BoundsB = plane.Bounds;
-	ri->CollisionMesh = mGeometries["Scythe"]->DrawArgs["CollisionMesh"];
-
-	// Add debug box
-	// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
-	float scaleX = 2.0f * ri->BoundsB.Extents.x;
-	float scaleY = 2.0f * ri->BoundsB.Extents.y;
-	float scaleZ = 2.0f * ri->BoundsB.Extents.z;
-	XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
-	XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
-
-	// Then apply world matrix for render item
-	XMStoreFloat4x4(&idata.World, bsc * btr);
-	box->AddInstance(idata);
-
-	mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
-	mPlane.AddRenderItem(ri);
+	return ritems;
 }
 
-void TestApp::BuildStaticGeometry()
+void D3Renderer::RemoveRenderItems(const std::vector<int>& ids)
+{
+	// Remove from all frame resources
+	for (auto& fr : mFrameResources)
+		fr->RemoveRenderItems(ids);
+
+	 //Remove our own copies
+	 //Loop over all categories
+	for (auto& categAndRenderItems : mRenderItems)
+	{
+		// .. and all render items in this category
+		auto rIt = categAndRenderItems.second.begin();
+		while (rIt != categAndRenderItems.second.end())
+		{
+			// Remove if we have a matching id
+			if (std::find(ids.begin(), ids.end(), (*rIt)->Id()) != ids.end())
+				rIt = categAndRenderItems.second.erase(rIt);
+			else
+				++rIt;
+		}
+	}
+}
+
+void D3Renderer::BuildStaticGeometry()
 {
 	GeometryGenerator geo;
 	auto box = geo.CreateBox(1.0f, 1.0f, 1.0f, 0);
@@ -1667,21 +1692,21 @@ void TestApp::BuildStaticGeometry()
 
 	mGeometries[geomesh->Name] = std::move(geomesh);
 
-	// Let's load the static canyon geometry
-	auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
-	auto success = m->LoadOBJ(mProjectPath + L"Models//" + std::wstring(mLevel.begin(), mLevel.end()) + L".obj");
-	assert(success >= 0);
-	m->Name = mLevel;
-	mGeometries[m->Name] = std::move(m);
+	//// Let's load the static canyon geometry
+	//auto m = std::make_unique<Mesh>(mD3Device, mCommandList);
+	//auto success = m->LoadOBJ(mProjectPath + L"Models//" + AnsiToWString(mLevel) + L".obj");
+	//assert(success >= 0);
+	//m->Name = mLevel;
+	//mGeometries[m->Name] = std::move(m);
 
-	auto scythe = std::make_unique<Mesh>(mD3Device, mCommandList);
-	success = scythe->LoadOBJ(mProjectPath + L"Models//Scythe2.obj");
-	assert(success >= 0);
-	scythe->Name = "Scythe";
-	mGeometries["Scythe"] = std::move(scythe);
+	//auto scythe = std::make_unique<Mesh>(mD3Device, mCommandList);
+	//success = scythe->LoadOBJ(mProjectPath + L"Models//Scythe2.obj");
+	//assert(success >= 0);
+	//scythe->Name = "Scythe";
+	//mGeometries["Scythe"] = std::move(scythe);
 }
 
-void TestApp::BuildShadersAndInputLayout()
+void D3Renderer::BuildShadersAndInputLayout()
 {
 	// Why do shaders not compile if i pass in NumXLights as a macro, as opposed to a regular #define? TODO
 	const D3D_SHADER_MACRO alphaTestDefines[] =
@@ -1731,12 +1756,12 @@ void TestApp::BuildShadersAndInputLayout()
 
 }
 
-void TestApp::LoadTextures()
+void D3Renderer::LoadTextures()
 {
 	auto bricksTex = std::make_unique<Texture>();
 	bricksTex->Name = "bricksTex";
 	bricksTex->Filename = mProjectPath + L"Textures/bricks.dds";
-
+	
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(mD3Device.Get(),
 		mCommandList.Get(), bricksTex->Filename.c_str(),
 		bricksTex->Resource, bricksTex->UploadHeap));
@@ -1752,6 +1777,7 @@ void TestApp::LoadTextures()
 	auto tileTex = std::make_unique<Texture>();
 	tileTex->Name = "tileTex";
 	tileTex->Filename = mProjectPath + L"Textures/tile.dds";
+
 
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(mD3Device.Get(),
 		mCommandList.Get(), tileTex->Filename.c_str(),
@@ -1771,7 +1797,7 @@ void TestApp::LoadTextures()
 	mTextures[envTex->Name] = std::move(envTex);
 }
 
-void TestApp::BuildMaterials()
+void D3Renderer::BuildMaterials()
 {
 	auto bricks0 = std::make_unique<Material>(mNumFrameResources);
 	bricks0->Name = "bricks0";
@@ -1816,7 +1842,7 @@ void TestApp::BuildMaterials()
 	mMaterials[sky->Name] = std::move(sky);
 }
 
-void TestApp::UpdateInstanceBuffer(const Timer& t, const std::vector<RENDER_ITEM_TYPE>& categories)
+void D3Renderer::UpdateInstanceBuffer(const std::vector<RENDER_ITEM_TYPE>& categories)
 {
 	for (auto category : categories)
 	{
@@ -1833,13 +1859,13 @@ void TestApp::UpdateInstanceBuffer(const Timer& t, const std::vector<RENDER_ITEM
 				data.MatIndex = ri->Instance(i).MatIndex;
 
 				// Write the instance data to structured buffer
-				currInstanceBuffer->CopyData(i, data);
+				currInstanceBuffer->CopyData(static_cast<INT>(i), data);
 			}
 		}
 	}
 }
 
-void TestApp::UpdateMaterialBuffer(const Timer& t)
+void D3Renderer::UpdateMaterialBuffer(const Timer& t)
 {
 	auto currMaterialBuffer = mCurrFrameResource->MaterialBuffer.get();
 	for (auto& e : mMaterials)
@@ -1864,7 +1890,7 @@ void TestApp::UpdateMaterialBuffer(const Timer& t)
 	}
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TestApp::GetStaticSamplers()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3Renderer::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 // and keep them available as part of the root signature.  
@@ -1934,7 +1960,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TestApp::GetStaticSamplers()
 	};
 }
 
-void TestApp::BuildDescriptorHeaps()
+void D3Renderer::BuildDescriptorHeaps()
 {
 	UINT objCount = (UINT)mRenderItems.size();
 	UINT texCount = (UINT)mTextures.size();
@@ -1963,7 +1989,7 @@ void TestApp::BuildDescriptorHeaps()
 	ThrowIfFailed(mD3Device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mCbvDescHeap)));
 }
 
-void TestApp::CreateRtvAndDsvDescriptorHeaps()
+void D3Renderer::CreateRtvAndDsvDescriptorHeaps()
 {
 	// Unfortunately, this is called during base class initialization - at which point the shadowmaps are not constructed.
 	// So for now, we'll just add in the max space lighting could possibly need. 

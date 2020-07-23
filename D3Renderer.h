@@ -1,8 +1,9 @@
 #pragma once
 
+#include <DirectXColors.h>
+
 #include "D3Base.h"
 #include "RenderItem.h"
-#include <DirectXColors.h>
 #include "FrameResource.h"
 #include "BlurFilter.h"
 #include "SobelFilter.h"
@@ -11,39 +12,44 @@
 #include "Mesh.h"
 #include "Light.h"
 #include "ShadowMap.h"
-#include "reactphysics3d.h"
 
 #include "Camera.h" // temporary!
 
-class TestApp :
+
+
+class D3Renderer :
 	public D3Base
 {
 public:
-	TestApp(HINSTANCE hInst);
-	~TestApp();
+	D3Renderer(HWND);
+	~D3Renderer();
 
-	virtual bool Initialize() override;
-
-private:
 	virtual void OnResize() override;
 	virtual void Update(const Timer& t) override;
 	virtual void Draw(const Timer& t) override;
+
+	// If additional user-defined initialization is to be done, then the command queue can be kept open.
+	// If this is done, InitializeEnd() must be called after.
+	// To add static geometry, Initialize(true) -> InitializeEnd() must be used.
+	virtual bool Initialize(bool keepQueueOpen = false) override;
+	void InitializeEnd();
+
+	void SetView(const DirectX::XMFLOAT4X4&);
+	void SetView(const DirectX::XMMATRIX&);
+
+	std::vector<std::shared_ptr<RenderItem>> AddRenderItem(const std::string&, const std::vector<RENDERITEM_PARAMS>&);
+	std::shared_ptr<RenderItem> AddRenderItem(const std::string&, const RENDERITEM_PARAMS&);
+	void RemoveRenderItems(const std::vector<int>&);
+
+protected:
 	void DrawRenderItems(ID3D12GraphicsCommandList*, const std::vector<std::shared_ptr<RenderItem>>&);
 	void DrawFullscreenQuad(ID3D12GraphicsCommandList*);
 	void DrawShadowMaps();
 
-	virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
-	virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
-	virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
-
-	void OnKeyboardInput(const Timer&);
-	virtual void OnKeyDown(WPARAM, LPARAM) override;
-	virtual void OnKeyUp(WPARAM, LPARAM) override;
-
 	void ClearInstances(std::shared_ptr<RenderItem>);
 
 	void UpdateGeometry(const Timer&);
-	void UpdateInstanceBuffer(const Timer&, const std::vector<RENDER_ITEM_TYPE>&);
+	void UpdateInstanceBuffer(const std::vector<RENDER_ITEM_TYPE>&);
 	void UpdateMaterialBuffer(const Timer&);
 	void UpdateMainPassCB(const Timer&);
 	void UpdateShadowPassCB(size_t lightIndex, UINT passIndex);
@@ -72,6 +78,7 @@ private:
 	void BuildFrameResources();
 	void BuildRenderItems();	
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
+
 private:
 	int gIdx = 0;
 	std::map<RENDER_ITEM_TYPE, std::vector<std::shared_ptr<RenderItem>>> mRenderItems;
@@ -122,8 +129,8 @@ private:
 	std::unique_ptr<SobelFilter> mSobelFilter;
 	std::unique_ptr<RenderTarget> mOffscreenRT;
 
-	Plane mPlane;
-	POINT mLastMousePos;
+	DirectX::XMFLOAT4X4 mView = Math::Identity4x4();
+	DirectX::XMFLOAT4 mPosition = { 0.0f, 1.0f, 0.0f, 1.0f };
 
 	Camera mCamera;
 
@@ -155,42 +162,5 @@ private:
 		RENDER_ITEM_TYPE::WIREFRAME_STATIC,
 		RENDER_ITEM_TYPE::DEBUG_QUAD_SHADOWMAP
 	};
-
-	// Member variables belonging to the physics 
-	
 };
-
-// Entry point
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE prevInst, PSTR cmdLine, int showCmd)
-{
-#if defined(DEBUG) | defined(_DEBUG)
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
-
-	try
-	{
-		TestApp ta(hInst);
-		if (!ta.Initialize())
-			return 0;
-
-		return ta.Run();
-	}
-	catch (DxException& e)
-	{
-		MessageBox(nullptr, e.ToString().c_str(), L"HR Failed", MB_OK);
-		return 0;
-	}
-}
-
-TestApp::TestApp(HINSTANCE hInst) : D3Base(hInst) {};
-TestApp::~TestApp() {};
-
-void TestApp::OnResize()
-{
-	D3Base::OnResize();
-
-	// The window resized, so update the aspect ratio and recompute the projection matrix.
-	DirectX::XMMATRIX P = DirectX::XMMatrixPerspectiveFovLH(0.25f * Math::Pi, AspectRatio(), 1.0f, 3000.0f);
-	DirectX::XMStoreFloat4x4(&mProj, P);
-}
 

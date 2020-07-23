@@ -1,10 +1,5 @@
 #pragma once
 
-#if defined(DEBUG) || defined(_DEBUG)
-#define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
-#endif
-
 #include "Utilities.h"
 #include "Timer.h"
 
@@ -13,10 +8,14 @@
 #pragma comment(lib, "D3D12.lib")
 #pragma comment(lib, "dxgi.lib")
 
+/*
+Handles basic DX initialization. Main renderer inherits from this class.
+Expects the window to be fully created 
+*/
 class D3Base
 {
 protected:
-	D3Base(HINSTANCE);
+	D3Base(HWND);
 	D3Base(const D3Base& rhs) = delete; // remove assignment constructor
 	D3Base& operator=(const D3Base& rhs) = delete; // remove copy constructor
 	virtual ~D3Base(); // virtual constructor is essential if we inherit from this class, as we intend to
@@ -24,33 +23,22 @@ protected:
 public:
 	static D3Base* GetApp();
 
-	HWND MainWnd() const;
-	HINSTANCE GetAppInst() const;
-
 	float AspectRatio() const;
+	void  SetScreenDimensions(UINT, UINT);
 
 	bool Get4xMsaaState() const;
 	void Set4xMsaaState(bool state);
-
-	int Run();
-
-	virtual bool Initialize();
-	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-protected:
-
-	virtual void CreateRtvAndDsvDescriptorHeaps();
+	
 	virtual void OnResize();
 	virtual void Update(const Timer&) {};
 	virtual void Draw(const Timer&) {};
+	
+	// Part of initialization is virtual, hence we move it out of the constructor.
+	virtual bool Initialize(bool keepQueueOpen = false);
 
-	virtual void OnMouseUp(WPARAM state, int x, int y) {};
-	virtual void OnMouseDown(WPARAM state, int x, int y) {};
-	virtual void OnMouseMove(WPARAM state, int x, int y) {};
-	virtual void OnKeyUp(WPARAM, LPARAM);
-	virtual void OnKeyDown(WPARAM, LPARAM);
-
-	bool InitMainWindow();
+protected:
+	virtual void CreateRtvAndDsvDescriptorHeaps();
+	
 	bool InitDirect3D();
 	void CreateCommandObjects();
 	void CreateSwapChain();
@@ -60,8 +48,6 @@ protected:
 	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
 
-	void CalculateFrameStats();
-
 	void LogAdapters() const;
 	void LogAdapterOutputs(IDXGIAdapter* adapter) const;
 	void LogOutputDisplayModes(IDXGIOutput* output, DXGI_FORMAT format) const;
@@ -69,15 +55,7 @@ protected:
 protected:
 	static D3Base* mApp;
 
-	// Window variables
-	HINSTANCE mAppInst = nullptr;
-	HWND mMainWnd = nullptr;
-	bool mMaximized = false;
-	bool mMinimized = false;
-	bool mResizing = false;
-	bool mFullScreenState = false;
-	bool mAppPaused = false;
-	Timer mTimer;
+	HWND mMainWnd = NULL; // Swap chain needs to know which window to render to
 
 	// Multisampling support
 	bool m4xMsaaEnabled = false;
@@ -105,15 +83,14 @@ protected:
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
 
-	D3D12_VIEWPORT	mScreenViewport;
-	D3D12_RECT	mScissorRect;
+	D3D12_VIEWPORT	mScreenViewport = {};
+	D3D12_RECT	mScissorRect = {};
 
 	UINT mRtvDescriptorSize = 0;
 	UINT mDsvDescriptorSize = 0;
 	UINT mCbvSrvUavDescriptorSize = 0;
 
-	std::wstring mMainWndCaption = L"Ello Wold";
-	D3D_DRIVER_TYPE D3D_DRIVER_TYPE_HARDWARE;
+	//D3D_DRIVER_TYPE D3D_DRIVER_TYPE_HARDWARE;
 	DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 	DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 

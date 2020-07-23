@@ -2,6 +2,7 @@
 
 #define NOMINMAX
 
+// TODO: clean this include hell.
 #include <windows.h>
 #include <wrl.h>
 #include <dxgi1_4.h>

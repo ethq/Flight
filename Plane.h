@@ -48,11 +48,12 @@ public:
 	float Y();
 	float Z();
 
-	void AddRenderItem(std::shared_ptr<RenderItem>);
+	void AddBody(std::shared_ptr<RenderItem>);
+	void AddCollisionMesh(std::shared_ptr<RenderItem>);
 
 private:
-	std::shared_ptr<RenderItem> mPlaneRenderItem = nullptr;
-
+	std::shared_ptr<RenderItem> mBodyRenderItem = nullptr;
+	std::shared_ptr<RenderItem> mCollisionMesh = nullptr;
 	STEER mYawing = STEER::NONE;
 	STEER mRolling = STEER::NONE;
 	STEER mPitching = STEER::NONE;
@@ -64,12 +65,12 @@ private:
 
 	bool mIsReversing = false;
 
-	DirectX::XMFLOAT4 mPos = { 0.0f, 0.0f, 0.0f, 1.0f };
+	DirectX::XMFLOAT4 mPos = { 0.0f, 5.0f, 0.0f, 1.0f };
 
 	DirectX::XMFLOAT4X4 mView;
 	DirectX::XMFLOAT4X4 mPlaneView1;
 
-	DirectX::XMFLOAT4 mAxisX = { 1.0f, 0.0f, 0.0f, 0.0f};
+	DirectX::XMFLOAT4 mAxisX = { 1.0f, 0.0f, 0.0f, 0.0f };
 	DirectX::XMFLOAT4 mAxisY = { 0.0f, 1.0f, 0.0f, 0.0f };
 	DirectX::XMFLOAT4 mAxisZ = { 0.0f, 0.0f, 1.0f, 0.0f };
 
