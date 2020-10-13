@@ -11,7 +11,6 @@
 #include "Mesh.h"
 #include "Light.h"
 #include "ShadowMap.h"
-#include "reactphysics3d.h"
 
 #include "Camera.h" // temporary!
 
@@ -97,7 +96,7 @@ private:
 
 	DirectX::BoundingSphere mSceneBoundS;
 
-	std::string mLevel = "Level_Airstrip";
+	std::string mLevel = "Level5";
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE mEnvironmentMapSrv;

@@ -301,8 +301,6 @@ void TestApp::ClearInstances(std::shared_ptr<RenderItem> ri)
 // Todo: test ClearInstances - seems to work well, but yknow.
 void TestApp::UpdateGeometry(const Timer& t)
 {
-	return;
-
 	auto dbgBoxes = mRenderItems[RENDER_ITEM_TYPE::DEBUG_BOXES][0];
 	ClearInstances(dbgBoxes);
 
@@ -1060,7 +1058,7 @@ void TestApp::InitLights()
 	pl->Light->FalloffEnd = 1000.0f;
 	pl->Light->FalloffStart = 50.0f;
 	pl->Light->SpotPower = 0.0f;
-	pl->Light->Position = { 0.0f, 0.0f, 0.0f };
+	pl->Light->Position = { 0.0f, 0.0f, -1.0f };
 	pl->Near = 1.0f;
 	pl->Far = 800.0f; // TODO: calculate these based on scene bounds from light view
 
@@ -1084,8 +1082,8 @@ bool TestApp::Initialize()
 
 	// Since the exec changes(sometimes its debug, sometimes its release) location, the exec location is not useful.
 	// So we need the project path, or do as recommended, store in user/documents or something like that.
-	mProjectPath = L"F:\\Code from the dungeon\\PLS\\"; // hardcode for now, TODO
-	mProjectPath = L"D:\\GitHub\\Flight\\";
+	mProjectPath = L"F:\\Github\\Flight\\"; // hardcode for now, TODO
+	//mProjectPath = L"D:\\GitHub\\Flight\\";
 
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -1514,38 +1512,38 @@ void TestApp::BuildRenderItems()
 		mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
 	}
 
-	auto plane = mGeometries["Scythe"]->DrawArgs["Plane"];
-	auto ri = std::make_shared<RenderItem>(mNumFrameResources);
+	//auto plane = mGeometries["Scythe"]->DrawArgs["Plane"];
+	//auto ri = std::make_shared<RenderItem>(mNumFrameResources);
 
-	idata.World = Math::Identity4x4();
-	//XMStoreFloat4x4(&idata.World, XMMatrixTranslation(0.0f, 0.0f, -200.0f));
-	//XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
-	// TODO SET MATINDEX
-	ri->AddInstance(idata);
+	//idata.World = Math::Identity4x4();
+	////XMStoreFloat4x4(&idata.World, XMMatrixTranslation(0.0f, 0.0f, -200.0f));
+	////XMStoreFloat4x4(&idata.World, XMMatrixScaling(0.1f, 0.1f, 0.1f));
+	//// TODO SET MATINDEX
+	//ri->AddInstance(idata);
 
-	ri->Geo = mGeometries["Scythe"].get();
-	ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	ri->IndexCount = plane.IndexCount;
-	ri->StartIndexLocation = plane.StartIndexLocation;
-	ri->BaseVertexLocation = plane.BaseVertexLocation;
-	ri->Name = "Plane";
-	ri->BoundsB = plane.Bounds;
-	ri->CollisionMesh = mGeometries["Scythe"]->DrawArgs["CollisionMesh"];
+	//ri->Geo = mGeometries["Scythe"].get();
+	//ri->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	//ri->IndexCount = plane.IndexCount;
+	//ri->StartIndexLocation = plane.StartIndexLocation;
+	//ri->BaseVertexLocation = plane.BaseVertexLocation;
+	//ri->Name = "Plane";
+	//ri->BoundsB = plane.Bounds;
+	//ri->CollisionMesh = mGeometries["Scythe"]->DrawArgs["CollisionMesh"];
 
-	// Add debug box
-	// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
-	float scaleX = 2.0f * ri->BoundsB.Extents.x;
-	float scaleY = 2.0f * ri->BoundsB.Extents.y;
-	float scaleZ = 2.0f * ri->BoundsB.Extents.z;
-	XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
-	XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
+	//// Add debug box
+	//// First move/scale boundingbox in local space. The debug box is at the origin and scaled at (1, 1, 1) by default.
+	//float scaleX = 2.0f * ri->BoundsB.Extents.x;
+	//float scaleY = 2.0f * ri->BoundsB.Extents.y;
+	//float scaleZ = 2.0f * ri->BoundsB.Extents.z;
+	//XMMATRIX btr = XMMatrixTranslation(ri->BoundsB.Center.x, ri->BoundsB.Center.y, ri->BoundsB.Center.z);
+	//XMMATRIX bsc = XMMatrixScaling(scaleX, scaleY, scaleZ);
 
-	// Then apply world matrix for render item
-	XMStoreFloat4x4(&idata.World, bsc * btr);
-	box->AddInstance(idata);
+	//// Then apply world matrix for render item
+	//XMStoreFloat4x4(&idata.World, bsc * btr);
+	//box->AddInstance(idata);
 
-	mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
-	mPlane.AddRenderItem(ri);
+	//mRenderItems[RENDER_ITEM_TYPE::OPAQUE_DYNAMIC].push_back(ri);
+	//mPlane.AddRenderItem(ri);
 }
 
 void TestApp::BuildStaticGeometry()
@@ -1736,6 +1734,8 @@ void TestApp::LoadTextures()
 	auto bricksTex = std::make_unique<Texture>();
 	bricksTex->Name = "bricksTex";
 	bricksTex->Filename = mProjectPath + L"Textures/bricks.dds";
+
+	OutputDebugStringW(bricksTex->Filename.c_str());
 
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(mD3Device.Get(),
 		mCommandList.Get(), bricksTex->Filename.c_str(),
